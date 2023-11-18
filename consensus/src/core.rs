@@ -18,7 +18,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use store::Store;
 use threshold_crypto::PublicKeySet;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
 #[cfg(test)]
 #[path = "tests/core_tests.rs"]
@@ -114,7 +114,10 @@ pub struct Core {
     aba_output: HashMap<SeqNumber, Option<usize>>,
     aba_output_messages: HashMap<SeqNumber, HashSet<PublicKey>>,
     par_value_wait: HashMap<SeqNumber, [bool; 2]>,
+    tx_par2: Sender<(SeqNumber, SeqNumber)>,
+    rx_par2: Receiver<(SeqNumber, SeqNumber)>,
 }
+
 impl Core {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -138,6 +141,7 @@ impl Core {
         pes_path: bool,
     ) -> Self {
         let aggregator = Aggregator::new(committee.clone());
+        let (tx_par2, rx_par2) = channel(1000);
         let mut core = Self {
             name,
             committee,
@@ -190,6 +194,8 @@ impl Core {
             aba_mux_vals: HashMap::new(),
             aba_output_messages: HashMap::new(),
             par_value_wait: HashMap::new(),
+            tx_par2,
+            rx_par2,
         };
         core.update_smvba_state(1, 1);
         core.update_hs_state(1);
@@ -291,6 +297,18 @@ impl Core {
         self.store.write(key, value).await;
     }
 
+    async fn parbft2_smvba_delay(
+        time_out: SeqNumber,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        sender: Sender<(SeqNumber, SeqNumber)>,
+    ) {
+        sleep(Duration::from_millis(time_out)).await;
+        if let Err(e) = sender.send((epoch, height)).await {
+            panic!("Failed to send last epoch message: {}", e);
+        }
+    }
+
     // -- Start Safety Module --
     fn increase_last_voted_round(&mut self, target: SeqNumber) {
         self.last_voted_height = max(self.last_voted_height, target);
@@ -375,25 +393,20 @@ impl Core {
             // Process the QC.
             self.process_qc(&qc).await;
 
-            let mut block = None;
-            if self.pes_path || self.name == self.leader_elector.get_leader(self.height) {
-                block = Some(self.generate_proposal().await);
-            }
             // Make a new block if we are the next leader.
             if self.name == self.leader_elector.get_leader(self.height) {
-                self.broadcast_opt_propose(block.clone().unwrap()).await?;
+                let block = self.generate_proposal(self.epoch, self.height).await;
+                self.broadcast_opt_propose(block).await?;
             }
 
             if self.pes_path {
-                self.update_smvba_state(self.height, 1);
-                let round = self.smvba_current_round.get(&self.height).unwrap_or(&1);
-                let proof = SPBProof {
-                    height: self.height,
-                    phase: INIT_PHASE,
-                    round: round.clone(),
-                    shares: Vec::new(),
-                };
-                self.broadcast_pes_propose(block.unwrap(), proof).await?;
+                let e = self.epoch;
+                let h = self.height;
+                let time_out = self.parameters.timeout_delay;
+                let sender = self.tx_par2.clone();
+                tokio::spawn(async move {
+                    Core::parbft2_smvba_delay(time_out, e, h, sender).await;
+                });
             }
         }
         Ok(())
@@ -415,7 +428,7 @@ impl Core {
     // -- End Pacemaker --
 
     #[async_recursion]
-    async fn generate_proposal(&mut self) -> Block {
+    async fn generate_proposal(&mut self, epoch: SeqNumber, height: SeqNumber) -> Block {
         // Make a new block.
         let payload = self
             .mempool_driver
@@ -424,8 +437,8 @@ impl Core {
         let block = Block::new(
             self.high_qc.clone(),
             self.name,
-            self.height,
-            self.epoch,
+            height,
+            epoch,
             payload,
             self.signature_service.clone(),
         )
@@ -772,9 +785,10 @@ impl Core {
         {
             return Ok(());
         }
-
-        //验证Proof是否正确
-        value.verify(&self.committee, &proof, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            //验证Proof是否正确
+            value.verify(&self.committee, &proof, &self.pk_set)?;
+        }
 
         self.process_spb_propose(&value, &proof).await?;
         Ok(())
@@ -801,9 +815,9 @@ impl Core {
         // {
         //     return Ok(());
         // }
-
-        spb_vote.verify(&self.committee, &self.pk_set)?;
-
+        if self.parameters.exp == 1 {
+            spb_vote.verify(&self.committee, &self.pk_set)?;
+        }
         if let Some(proof) = self.aggregator.add_spb_vote(spb_vote.clone())? {
             debug!("Create spb proof {:?}!", proof);
             // println!("Create spb proof {:?}!", proof);
@@ -845,7 +859,9 @@ impl Core {
             ConsensusError::TimeOutMessage(proof.height, proof.round)
         );
 
-        value.verify(&self.committee, &proof, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            value.verify(&self.committee, &proof, &self.pk_set)?;
+        }
 
         self.spb_finishs
             .entry((proof.height, proof.round))
@@ -884,7 +900,9 @@ impl Core {
             ConsensusError::TimeOutMessage(mdone.height, mdone.round)
         );
 
-        mdone.verify()?;
+        if self.parameters.exp == 1 {
+            mdone.verify()?;
+        }
 
         let d_flag = self
             .smvba_d_flag
@@ -976,7 +994,9 @@ impl Core {
             ConsensusError::TimeOutMessage(prevote.height, prevote.round)
         );
 
-        prevote.verify(&self.committee, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            prevote.verify(&self.committee, &self.pk_set)?;
+        }
 
         let y_flag = self
             .smvba_y_flag
@@ -1059,7 +1079,9 @@ impl Core {
             ConsensusError::TimeOutMessage(mvote.height, mvote.round)
         );
 
-        mvote.verify(&self.committee, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            mvote.verify(&self.committee, &self.pk_set)?;
+        }
 
         let set = self
             .smvba_votes
@@ -1100,7 +1122,7 @@ impl Core {
         };
 
         if weight == self.committee.quorum_threshold() {
-            self.smvba_round_advance(mvote.height, mvote.round + 1)
+            self.smvba_round_advance(mvote.epoch, mvote.height, mvote.round + 1)
                 .await?;
         }
 
@@ -1115,7 +1137,9 @@ impl Core {
             ConsensusError::TimeOutMessage(share.height, share.round)
         );
 
-        share.verify(&self.committee, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            share.verify(&self.committee, &self.pk_set)?;
+        }
 
         if self
             .leader_elector
@@ -1218,7 +1242,7 @@ impl Core {
     }
 
     async fn handle_smvba_halt(&mut self, halt: MHalt) -> ConsensusResult<()> {
-        info!("Processing {:?}", halt);
+        debug!("Processing {:?}", halt);
 
         ensure!(
             self.smvba_msg_filter(halt.epoch, halt.height, halt.round, FIN_PHASE),
@@ -1235,8 +1259,9 @@ impl Core {
             self.smvba_halt_falg.insert((halt.height, halt.round), true);
         }
 
-        halt.verify(&self.committee, &self.pk_set)?;
-
+        if self.parameters.exp == 1 {
+            halt.verify(&self.committee, &self.pk_set)?;
+        }
         //smvba end -> send pes-prepare
         self.active_prepare_pahse(
             halt.height,
@@ -1251,6 +1276,7 @@ impl Core {
 
     async fn smvba_round_advance(
         &mut self,
+        epoch: SeqNumber,
         height: SeqNumber,
         round: SeqNumber,
     ) -> ConsensusResult<()> {
@@ -1261,7 +1287,7 @@ impl Core {
             round,
             shares: Vec::new(),
         };
-        let block = self.generate_proposal().await;
+        let block = self.generate_proposal(epoch, height).await;
         self.broadcast_pes_propose(block, proof)
             .await
             .expect("Failed to send the PES block");
@@ -1274,7 +1300,8 @@ impl Core {
         if prepare.epoch != self.epoch || prepare.height + 2 <= self.height {
             return Ok(());
         }
-        if self.parameters.ddos {
+
+        if self.parameters.exp == 1 {
             prepare.verify(&self.committee, &self.pk_set)?;
         }
 
@@ -1396,7 +1423,10 @@ impl Core {
     async fn handle_aba_val(&mut self, aba_val: ABAVal) -> ConsensusResult<()> {
         debug!("Processing {:?}", aba_val);
 
-        aba_val.verify()?;
+        if self.parameters.exp == 1 {
+            aba_val.verify()?;
+        }
+
         if !self.aba_message_filter(aba_val.epoch, aba_val.height, aba_val.round, aba_val.phase) {
             return Ok(());
         }
@@ -1542,7 +1572,9 @@ impl Core {
     async fn handle_aba_rs(&mut self, share: RandomnessShare) -> ConsensusResult<()> {
         debug!("Processing aba coin share {:?}", share);
 
-        share.verify(&self.committee, &self.pk_set)?;
+        if self.parameters.exp == 1 {
+            share.verify(&self.committee, &self.pk_set)?;
+        }
 
         if !self.aba_message_filter(share.epoch, share.height, share.round, MUX_PHASE) {
             return Ok(());
@@ -1618,7 +1650,9 @@ impl Core {
     async fn handle_aba_output(&mut self, aba_out: ABAOutput) -> ConsensusResult<()> {
         debug!("Processing {:?}", aba_out);
 
-        aba_out.verify()?;
+        if self.parameters.exp == 1 {
+            aba_out.verify()?;
+        }
 
         if !self.aba_message_filter(aba_out.epoch, aba_out.height, aba_out.round, MUX_PHASE) {
             return Ok(());
@@ -1769,26 +1803,21 @@ impl Core {
     pub async fn run(&mut self) {
         // Upon booting, generate the very first block (if we are the leader).
         // Also, schedule a timer in case we don't hear from the leader.
-        let block = self.generate_proposal().await;
-
         if self.opt_path && self.name == self.leader_elector.get_leader(self.height) {
-            //如果是leader就发送propose
-            self.broadcast_opt_propose(block.clone())
+            let block = self.generate_proposal(self.epoch, self.height).await;
+            self.broadcast_opt_propose(block)
                 .await
                 .expect("Failed to send the OPT block");
         }
-        //如果启动了悲观路劲
+
         if self.pes_path {
-            let round = self.smvba_current_round.get(&self.height).unwrap_or(&1);
-            let proof = SPBProof {
-                height: self.height,
-                phase: INIT_PHASE,
-                round: round.clone(),
-                shares: Vec::new(),
-            };
-            self.broadcast_pes_propose(block, proof)
-                .await
-                .expect("Failed to send the PES block");
+            let e = self.epoch;
+            let h = self.height;
+            let time_out = self.parameters.timeout_delay;
+            let sender = self.tx_par2.clone();
+            tokio::spawn(async move {
+                Core::parbft2_smvba_delay(time_out, e, h, sender).await;
+            });
         }
 
         // This is the main loop: it processes incoming blocks and votes,
@@ -1823,6 +1852,20 @@ impl Core {
                         ConsensusMessage::ParABACoinShare(rs) => self.handle_aba_rs(rs).await,
                         _=> Ok(()),
                     }
+                },
+                Some((epoch,height)) = self.rx_par2.recv()=>{
+                    info!("hahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhahahah");
+                    if epoch>=self.epoch && height+2>self.height{
+                        let proof = SPBProof {
+                            height: self.height,
+                            phase: INIT_PHASE,
+                            round: 1,
+                            shares: Vec::new(),
+                        };
+                        let block = self.generate_proposal(epoch, height).await;
+                        self.broadcast_pes_propose(block, proof).await.expect("Failed to send the PES block");
+                    }
+                    Ok(())
                 },
                 else => break,
             };
