@@ -52,6 +52,8 @@ impl Filter {
             if parameters.ddos {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             }
+        } else if let ConsensusMessage::SPBPropose(..) = message {
+            sleep(Duration::from_millis(parameters.timeout_delay)).await;
         }
         input
     }
