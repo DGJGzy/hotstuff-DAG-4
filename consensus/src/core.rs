@@ -62,7 +62,7 @@ pub enum ConsensusMessage {
     ParABACoinShare(RandomnessShare),
     ParABAOutput(ABAOutput),
     ParLoopBack(Block),
-    DelayProPose(SeqNumber, SeqNumber),
+    DelayProPose(SeqNumber, SeqNumber, QC),
 }
 
 pub struct Core {
@@ -299,9 +299,10 @@ impl Core {
         time_out: SeqNumber,
         epoch: SeqNumber,
         height: SeqNumber,
-    ) -> (SeqNumber, SeqNumber) {
+        qc: QC,
+    ) -> (SeqNumber, SeqNumber, QC) {
         sleep(Duration::from_millis(time_out)).await;
-        (epoch, height)
+        (epoch, height, qc)
     }
 
     // -- Start Safety Module --
@@ -337,15 +338,19 @@ impl Core {
         let mut current_block = block.clone();
         while current_block.height > self.last_committed_height {
             if !current_block.payload.is_empty() {
-                info!("Committed {} epoch {}", current_block, current_block.epoch);
+                info!(
+                    "Committed {} epoch {} tag {}",
+                    current_block, current_block.epoch, current_block.tag
+                );
 
                 #[cfg(feature = "benchmark")]
                 for x in &current_block.payload {
                     info!(
-                        "Committed B{}({}) epoch {}",
+                        "Committed B{}({}) epoch {} tag {}",
                         current_block.height,
                         base64::encode(x),
-                        current_block.epoch
+                        current_block.epoch,
+                        current_block.tag,
                     );
                 }
                 // Cleanup the mempool.
@@ -395,12 +400,15 @@ impl Core {
 
             // Make a new block if we are the next leader.
             if self.name == self.leader_elector.get_leader(self.height) {
-                let block = self.generate_proposal(self.epoch, self.height).await;
+                let block = self
+                    .generate_proposal(self.epoch, self.height, OPT, self.high_qc.clone())
+                    .await;
                 self.broadcast_opt_propose(block).await?;
             }
 
             if self.pes_path {
-                let message = ConsensusMessage::DelayProPose(self.epoch, self.height);
+                let message =
+                    ConsensusMessage::DelayProPose(self.epoch, self.height, self.high_qc.clone());
                 if let Err(e) = self.tx_smvba.send(message).await {
                     warn!("Failed to send block through the smvba channel: {}", e);
                 }
@@ -425,14 +433,20 @@ impl Core {
     // -- End Pacemaker --
 
     #[async_recursion]
-    async fn generate_proposal(&mut self, epoch: SeqNumber, height: SeqNumber) -> Block {
+    async fn generate_proposal(
+        &mut self,
+        epoch: SeqNumber,
+        height: SeqNumber,
+        tag: u8,
+        qc: QC,
+    ) -> Block {
         // Make a new block.
         let payload = self
             .mempool_driver
             .get(self.parameters.max_payload_size)
             .await;
-        let block = Block::new(
-            self.high_qc.clone(),
+        let mut block = Block::new(
+            qc,
             self.name,
             height,
             epoch,
@@ -440,17 +454,19 @@ impl Core {
             self.signature_service.clone(),
         )
         .await;
+        block.tag = tag;
         if !block.payload.is_empty() {
-            info!("Created {} epoch {}", block, block.epoch);
+            info!("Created {} epoch {} tag {}", block, block.epoch, block.tag);
 
             #[cfg(feature = "benchmark")]
             for x in &block.payload {
                 // NOTE: This log entry is used to compute performance.
                 info!(
-                    "Created B{}({}) epoch {}",
+                    "Created B{}({}) epoch {} tag {}",
                     block.height,
                     base64::encode(x),
-                    block.epoch
+                    block.epoch,
+                    block.tag
                 );
             }
         }
@@ -1289,7 +1305,9 @@ impl Core {
             round,
             shares: Vec::new(),
         };
-        let block = self.generate_proposal(epoch, height).await;
+        let block = self
+            .generate_proposal(epoch, height, PES, self.high_qc.clone())
+            .await;
         self.broadcast_pes_propose(block, proof)
             .await
             .expect("Failed to send the PES block");
@@ -1762,9 +1780,11 @@ impl Core {
             }
             if tag == PES {
                 //如果是悲观路径输出
-                info!("ABA output 1,epoch {} end", self.epoch);
+                info!("---------ABA output 1,epoch {} end------------", self.epoch);
 
                 return Err(ConsensusError::EpochEnd(self.epoch));
+            } else {
+                info!("---------ABA output 0----------");
             }
         }
 
@@ -1806,14 +1826,17 @@ impl Core {
         // Upon booting, generate the very first block (if we are the leader).
         // Also, schedule a timer in case we don't hear from the leader.
         if self.opt_path && self.name == self.leader_elector.get_leader(self.height) {
-            let block = self.generate_proposal(self.epoch, self.height).await;
+            let block = self
+                .generate_proposal(self.epoch, self.height, OPT, self.high_qc.clone())
+                .await;
             self.broadcast_opt_propose(block)
                 .await
                 .expect("Failed to send the OPT block");
         }
 
         if self.pes_path {
-            let message = ConsensusMessage::DelayProPose(self.epoch, self.height);
+            let message =
+                ConsensusMessage::DelayProPose(self.epoch, self.height, self.high_qc.clone());
             if let Err(e) = self.tx_smvba.send(message).await {
                 warn!("Failed to send block through the smvba channel: {}", e);
             }
@@ -1836,8 +1859,8 @@ impl Core {
                 },
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
-                        ConsensusMessage::DelayProPose(e,h)=> {
-                            pending_smvba.push(Self::parbft2_smvba_delay(self.parameters.timeout_delay,e,h));
+                        ConsensusMessage::DelayProPose(e,h,qc)=> {
+                            pending_smvba.push(Self::parbft2_smvba_delay(self.parameters.timeout_delay,e,h,qc));
                             Ok(())
                         }
                         ConsensusMessage::SPBPropose(value,proof)=> self.handle_spb_proposal(value,proof).await,
@@ -1856,7 +1879,7 @@ impl Core {
                         _=> Ok(()),
                     }
                 },
-                Some((epoch,height)) = pending_smvba.next() =>{
+                Some((epoch,height,qc)) = pending_smvba.next() =>{
                     if epoch>=self.epoch && height+2>self.height{
                         let proof = SPBProof {
                             height: self.height,
@@ -1864,7 +1887,7 @@ impl Core {
                             round: 1,
                             shares: Vec::new(),
                         };
-                        let block = self.generate_proposal(epoch, height).await;
+                        let block = self.generate_proposal(epoch, height,PES,qc).await;
                         self.broadcast_pes_propose(block, proof).await.expect("Failed to send the PES block");
                     }
                     Ok(())
