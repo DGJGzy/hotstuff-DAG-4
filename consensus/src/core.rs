@@ -12,13 +12,15 @@ use crate::synchronizer::Synchronizer;
 use async_recursion::async_recursion;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey, SignatureService};
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use store::Store;
 use threshold_crypto::PublicKeySet;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 #[cfg(test)]
 #[path = "tests/core_tests.rs"]
@@ -60,6 +62,7 @@ pub enum ConsensusMessage {
     ParABACoinShare(RandomnessShare),
     ParABAOutput(ABAOutput),
     ParLoopBack(Block),
+    DelayProPose(SeqNumber, SeqNumber),
 }
 
 pub struct Core {
@@ -114,8 +117,6 @@ pub struct Core {
     aba_output: HashMap<SeqNumber, Option<usize>>,
     aba_output_messages: HashMap<SeqNumber, HashSet<PublicKey>>,
     par_value_wait: HashMap<SeqNumber, [bool; 2]>,
-    tx_par2: Sender<(SeqNumber, SeqNumber)>,
-    rx_par2: Receiver<(SeqNumber, SeqNumber)>,
 }
 
 impl Core {
@@ -141,7 +142,6 @@ impl Core {
         pes_path: bool,
     ) -> Self {
         let aggregator = Aggregator::new(committee.clone());
-        let (tx_par2, rx_par2) = channel(1000);
         let mut core = Self {
             name,
             committee,
@@ -194,8 +194,6 @@ impl Core {
             aba_mux_vals: HashMap::new(),
             aba_output_messages: HashMap::new(),
             par_value_wait: HashMap::new(),
-            tx_par2,
-            rx_par2,
         };
         core.update_smvba_state(1, 1);
         core.update_hs_state(1);
@@ -301,12 +299,9 @@ impl Core {
         time_out: SeqNumber,
         epoch: SeqNumber,
         height: SeqNumber,
-        sender: Sender<(SeqNumber, SeqNumber)>,
-    ) {
+    ) -> (SeqNumber, SeqNumber) {
         sleep(Duration::from_millis(time_out)).await;
-        if let Err(e) = sender.send((epoch, height)).await {
-            panic!("Failed to send last epoch message: {}", e);
-        }
+        (epoch, height)
     }
 
     // -- Start Safety Module --
@@ -342,11 +337,16 @@ impl Core {
         let mut current_block = block.clone();
         while current_block.height > self.last_committed_height {
             if !current_block.payload.is_empty() {
-                info!("Committed {}", current_block);
+                info!("Committed {} epoch {}", current_block, current_block.epoch);
 
                 #[cfg(feature = "benchmark")]
                 for x in &current_block.payload {
-                    info!("Committed B{}({})", current_block.height, base64::encode(x));
+                    info!(
+                        "Committed B{}({}) epoch {}",
+                        current_block.height,
+                        base64::encode(x),
+                        current_block.epoch
+                    );
                 }
                 // Cleanup the mempool.
                 self.mempool_driver.cleanup_par(&current_block).await;
@@ -400,13 +400,10 @@ impl Core {
             }
 
             if self.pes_path {
-                let e = self.epoch;
-                let h = self.height;
-                let time_out = self.parameters.timeout_delay;
-                let sender = self.tx_par2.clone();
-                tokio::spawn(async move {
-                    Core::parbft2_smvba_delay(time_out, e, h, sender).await;
-                });
+                let message = ConsensusMessage::DelayProPose(self.epoch, self.height);
+                if let Err(e) = self.tx_smvba.send(message).await {
+                    warn!("Failed to send block through the smvba channel: {}", e);
+                }
             }
         }
         Ok(())
@@ -444,12 +441,17 @@ impl Core {
         )
         .await;
         if !block.payload.is_empty() {
-            info!("Created {}", block);
+            info!("Created {} epoch {}", block, block.epoch);
 
             #[cfg(feature = "benchmark")]
             for x in &block.payload {
                 // NOTE: This log entry is used to compute performance.
-                info!("Created B{}({})", block.height, base64::encode(x));
+                info!(
+                    "Created B{}({}) epoch {}",
+                    block.height,
+                    base64::encode(x),
+                    block.epoch
+                );
             }
         }
         debug!("Created {:?}", block);
@@ -1811,18 +1813,15 @@ impl Core {
         }
 
         if self.pes_path {
-            let e = self.epoch;
-            let h = self.height;
-            let time_out = self.parameters.timeout_delay;
-            let sender = self.tx_par2.clone();
-            tokio::spawn(async move {
-                Core::parbft2_smvba_delay(time_out, e, h, sender).await;
-            });
+            let message = ConsensusMessage::DelayProPose(self.epoch, self.height);
+            if let Err(e) = self.tx_smvba.send(message).await {
+                warn!("Failed to send block through the smvba channel: {}", e);
+            }
         }
 
         // This is the main loop: it processes incoming blocks and votes,
         // and receive timeout notifications from our Timeout Manager.
-
+        let mut pending_smvba = FuturesUnordered::new();
         loop {
             let result = tokio::select! {
                 Some(message) = self.core_channel.recv() => {
@@ -1837,6 +1836,10 @@ impl Core {
                 },
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
+                        ConsensusMessage::DelayProPose(e,h)=> {
+                            pending_smvba.push(Self::parbft2_smvba_delay(self.parameters.timeout_delay,e,h));
+                            Ok(())
+                        }
                         ConsensusMessage::SPBPropose(value,proof)=> self.handle_spb_proposal(value,proof).await,
                         ConsensusMessage::SPBVote(vote)=> self.handle_spb_vote(&vote).await,
                         ConsensusMessage::SPBFinsh(value,proof)=> self.handle_spb_finish(value,proof).await,
@@ -1853,8 +1856,7 @@ impl Core {
                         _=> Ok(()),
                     }
                 },
-                Some((epoch,height)) = self.rx_par2.recv()=>{
-                    info!("hahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhahahah");
+                Some((epoch,height)) = pending_smvba.next() =>{
                     if epoch>=self.epoch && height+2>self.height{
                         let proof = SPBProof {
                             height: self.height,

@@ -20,19 +20,19 @@ def local(ctx):
     }
     node_params = {
         'consensus': {
-            'timeout_delay': 2000,
+            'timeout_delay': 800,
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
-            'min_block_delay': 0,
+            'min_block_delay': 10,
             'network_delay': 1000, # message delay on the leaders' proposals during DDoS
-            'ddos': True, # True for DDoS attack on the leader, False otherwise
+            'ddos': False, # True for DDoS attack on the leader, False otherwise
             'exp': 0 # multiplicative factor for exponential fallback
         },
         'mempool': {
             'queue_capacity': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 15_000,
-            'min_block_delay': 0
+            'min_block_delay': 10
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for ParBFT, 2 for SMVBA
     }
