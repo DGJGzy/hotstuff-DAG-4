@@ -46,9 +46,12 @@ class LogParser:
         self.commits = self._merge_results([x.items() for x in commits])
         self.h_proposals = self._merge_results([x.items() for x in h_proposals])
         self.h_commits = self._merge_results([x.items() for x in h_commits])
+        sizes = self._merge_results([x.items() for x in sizes])
+        
         self.sizes = {
-            k: v for x in sizes for k, v in x.items() if k in self.commits
+            k: sizes[k[:44]] for k,_ in self.h_commits.items() if k[:44] in sizes
         }
+
         self.timeouts = max(timeouts)
 
         # Check whether clients missed their target rate.
@@ -92,18 +95,18 @@ class LogParser:
         if search(r'panic', log) is not None:
             raise ParseError('Client(s) panicked')
 
-        tmp_p = findall(r'\[(.*Z) .* Created B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _,_ in tmp_p]
+        tmp_p = findall(r'\[(.*Z) .* Created B(\d+)\(([^ ]+)\) epoch (\d+)', log)
+        tmp = [(d, self._to_posix(t)) for t, _, d, _ in tmp_p]
         proposals = self._merge_results([tmp])
 
-        tmp = [(d+"="+e+"="+h+"="+path,self._to_posix(t)) for t, h, d, e, path in tmp_p]
+        tmp = [(d+e+"="+h,self._to_posix(t)) for t, h, d, e in tmp_p]
         h_proposals = self._merge_results([tmp])
 
-        tmp_c = findall(r'\[(.*Z) .* Committed B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _ , _ in tmp_c]
+        tmp_c = findall(r'\[(.*Z) .* Committed B(\d+)\(([^ ]+)\) epoch (\d+)', log)
+        tmp = [(d, self._to_posix(t)) for t, _, d, _ in tmp_c]
         commits = self._merge_results([tmp])
 
-        tmp = [(d+"="+e+"="+h+"="+path,self._to_posix(t)) for t, h, d, e, path in tmp_c]
+        tmp = [(d+e+"="+h,self._to_posix(t)) for t, h, d, e in tmp_c]
         h_commits = self._merge_results([tmp])
 
         tmp = findall(r'Payload ([^ ]+) contains (\d+) B', log)
