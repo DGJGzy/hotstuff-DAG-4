@@ -16,8 +16,8 @@ class AWSError(Exception):
 
 
 class InstanceManager:
-    INSTANCE_NAME = 'parbft1-node'
-    SECURITY_GROUP_NAME = 'parbft1'
+    INSTANCE_NAME = 'parbft2-node'
+    SECURITY_GROUP_NAME = 'parbft2'
 
     def __init__(self, settings):
         assert isinstance(settings, Settings)
