@@ -44,7 +44,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=2):
+def create(ctx, nodes=1):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
