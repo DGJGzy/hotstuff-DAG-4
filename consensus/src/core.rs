@@ -476,7 +476,6 @@ impl Core {
     }
 
     async fn broadcast_opt_propose(&mut self, block: Block) -> ConsensusResult<()> {
-        self.process_opt_block(&block).await?;
         // Process our new block and broadcast it.
         let message = ConsensusMessage::HsPropose(block.clone());
         Synchronizer::transmit(
@@ -488,7 +487,7 @@ impl Core {
             OPT,
         )
         .await?;
-
+        self.process_opt_block(&block).await?;
         // Wait for the minimum block delay.
         sleep(Duration::from_millis(self.parameters.min_block_delay)).await;
         Ok(())
@@ -506,7 +505,6 @@ impl Core {
                 .insert((value.block.height, value.round), value.clone());
         }
 
-        self.process_spb_propose(&value, &proof).await?;
         let message = ConsensusMessage::SPBPropose(value.clone(), proof.clone());
         Synchronizer::transmit(
             message,
@@ -517,7 +515,7 @@ impl Core {
             PES,
         )
         .await?;
-
+        self.process_spb_propose(&value, &proof).await?;
         // Wait for the minimum block delay.
         sleep(Duration::from_millis(self.parameters.min_block_delay)).await;
         Ok(())
@@ -598,8 +596,8 @@ impl Core {
         if let Some(vote) = self.make_opt_vote(block).await {
             debug!("Created hs {:?}", vote);
             //3. broadcast vote
-            self.handle_opt_vote(&vote).await?;
-            let message = ConsensusMessage::HSVote(vote);
+
+            let message = ConsensusMessage::HSVote(vote.clone());
             Synchronizer::transmit(
                 message,
                 &self.name,
@@ -609,6 +607,7 @@ impl Core {
                 OPT,
             )
             .await?;
+            self.handle_opt_vote(&vote).await?;
         }
         Ok(())
     }
@@ -708,9 +707,7 @@ impl Core {
         )
         .await;
 
-        self.handle_par_prepare(prepare.clone()).await?;
-
-        let message = ConsensusMessage::ParPrePare(prepare);
+        let message = ConsensusMessage::ParPrePare(prepare.clone());
         Synchronizer::transmit(
             message,
             &self.name,
@@ -720,6 +717,8 @@ impl Core {
             PES,
         )
         .await?;
+
+        self.handle_par_prepare(prepare.clone()).await?;
         Ok(())
     }
 
@@ -851,9 +850,7 @@ impl Core {
                 let mut temp = value.clone();
                 temp.phase = FIN_PHASE;
 
-                self.handle_spb_finish(temp.clone(), proof.clone()).await?;
-
-                let message = ConsensusMessage::SPBFinsh(temp, proof);
+                let message = ConsensusMessage::SPBFinsh(temp.clone(), proof.clone());
                 Synchronizer::transmit(
                     message,
                     &self.name,
@@ -863,6 +860,7 @@ impl Core {
                     PES,
                 )
                 .await?;
+                self.handle_spb_finish(temp, proof).await?;
             }
         }
         Ok(())
@@ -977,10 +975,7 @@ impl Core {
         )
         .await;
 
-        self.handle_smvba_done(mdone.clone()).await?;
-        self.handle_smvba_rs(share.clone()).await?;
-
-        let message = ConsensusMessage::SPBDone(mdone);
+        let message = ConsensusMessage::SPBDone(mdone.clone());
         Synchronizer::transmit(
             message,
             &self.name,
@@ -991,7 +986,7 @@ impl Core {
         )
         .await?;
 
-        let message = ConsensusMessage::SMVBACoinShare(share);
+        let message = ConsensusMessage::SMVBACoinShare(share.clone());
         Synchronizer::transmit(
             message,
             &self.name,
@@ -1001,6 +996,8 @@ impl Core {
             PES,
         )
         .await?;
+        self.handle_smvba_done(mdone).await?;
+        self.handle_smvba_rs(share).await?;
         Ok(())
     }
 
@@ -1121,8 +1118,8 @@ impl Core {
                         self.signature_service.clone(),
                     )
                     .await;
-                    self.handle_smvba_halt(mhalt.clone()).await?;
-                    let message = ConsensusMessage::SMVBAHalt(mhalt);
+
+                    let message = ConsensusMessage::SMVBAHalt(mhalt.clone());
                     Synchronizer::transmit(
                         message,
                         &self.name,
@@ -1132,7 +1129,7 @@ impl Core {
                         PES,
                     )
                     .await?;
-
+                    self.handle_smvba_halt(mhalt).await?;
                     return Ok(());
                 }
             }
@@ -1195,8 +1192,8 @@ impl Core {
                     self.signature_service.clone(),
                 )
                 .await;
-                self.handle_smvba_halt(mhalt.clone()).await?;
-                let message = ConsensusMessage::SMVBAHalt(mhalt);
+
+                let message = ConsensusMessage::SMVBAHalt(mhalt.clone());
                 Synchronizer::transmit(
                     message,
                     &self.name,
@@ -1206,6 +1203,7 @@ impl Core {
                     PES,
                 )
                 .await?;
+                self.handle_smvba_halt(mhalt).await?;
             } else {
                 let mut pre_vote = MPreVote::new(
                     self.name,
@@ -1393,8 +1391,7 @@ impl Core {
         }
 
         if let Some(val) = aba_val {
-            self.handle_aba_val(val.clone()).await?;
-            let message = ConsensusMessage::ParABAVal(val);
+            let message = ConsensusMessage::ParABAVal(val.clone());
             Synchronizer::transmit(
                 message,
                 &self.name,
@@ -1404,6 +1401,7 @@ impl Core {
                 PES,
             )
             .await?;
+            self.handle_aba_val(val).await?;
         }
 
         //wait value?
