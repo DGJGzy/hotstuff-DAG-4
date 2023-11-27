@@ -117,6 +117,7 @@ pub struct Core {
     aba_output: HashMap<SeqNumber, Option<usize>>,
     aba_output_messages: HashMap<SeqNumber, HashSet<PublicKey>>,
     par_value_wait: HashMap<SeqNumber, [bool; 2]>,
+    smvba_is_invoke: HashMap<SeqNumber, bool>,
 }
 
 impl Core {
@@ -194,6 +195,7 @@ impl Core {
             aba_mux_vals: HashMap::new(),
             aba_output_messages: HashMap::new(),
             par_value_wait: HashMap::new(),
+            smvba_is_invoke: HashMap::new(),
         };
         core.update_smvba_state(1, 1);
         core.update_hs_state(1);
@@ -235,6 +237,7 @@ impl Core {
         self.par_value_wait = HashMap::new();
         self.spb_abandon_flag = HashMap::new();
         self.smvba_halt_falg = HashMap::new();
+        self.smvba_is_invoke = HashMap::new();
         self.update_smvba_state(1, 1);
         self.update_hs_state(1);
     }
@@ -546,7 +549,11 @@ impl Core {
 
         //TODO:
         // 1. 对 height-1 的 block 发送 prepare-opt
-        if self.pes_path && block.height > 1 {
+        let flag = self
+            .smvba_is_invoke
+            .entry(block.height - 1)
+            .or_insert(false);
+        if self.pes_path && block.height > 1 && *flag {
             self.active_prepare_pahse(
                 block.height - 1,
                 &b1,                                 // Block h-1
@@ -1885,6 +1892,7 @@ impl Core {
                             round: 1,
                             shares: Vec::new(),
                         };
+                        self.smvba_is_invoke.insert(height,true);
                         let block = self.generate_proposal(epoch, height,PES,qc).await;
                         self.broadcast_pes_propose(block, proof).await.expect("Failed to send the PES block");
                     }
