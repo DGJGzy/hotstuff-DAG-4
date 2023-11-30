@@ -759,7 +759,7 @@ impl Core {
         &mut self,
         epoch: SeqNumber,
         height: SeqNumber,
-        round: SeqNumber,
+        _round: SeqNumber,
         _phase: u8,
     ) -> bool {
         if self.epoch > epoch {
@@ -768,15 +768,15 @@ impl Core {
         if self.height >= height + 2 {
             return false;
         }
-        let cur_round = self.smvba_current_round.entry(height).or_insert(1);
-        if *cur_round > round {
-            return false;
-        }
+        // let cur_round = self.smvba_current_round.entry(height).or_insert(1);
+        // if *cur_round > round {
+        //     return false;
+        // }
 
-        // halt?
-        if *self.smvba_halt_falg.entry((height, round)).or_insert(false) {
-            return false;
-        }
+        // // halt?
+        // if *self.smvba_halt_falg.entry((height, round)).or_insert(false) {
+        //     return false;
+        // }
 
         true
     }
@@ -1277,10 +1277,16 @@ impl Core {
         {
             return Ok(());
         }
-
-        if halt.author == self.name {
-            self.smvba_halt_falg.insert((halt.height, halt.round), true);
+        // halt?
+        if *self
+            .smvba_halt_falg
+            .entry((halt.height, halt.round))
+            .or_insert(false)
+        {
+            return Ok(());
         }
+
+        self.smvba_halt_falg.insert((halt.height, halt.round), true);
 
         if self.parameters.exp == 1 {
             halt.verify(&self.committee, &self.pk_set)?;
@@ -1303,6 +1309,10 @@ impl Core {
         height: SeqNumber,
         round: SeqNumber,
     ) -> ConsensusResult<()> {
+        info!(
+            "-------------smvba round advance height {}, round {}------------",
+            height, round
+        );
         self.update_smvba_state(height, round);
         let proof = SPBProof {
             height: self.height,
@@ -1313,9 +1323,7 @@ impl Core {
         let block = self
             .generate_proposal(epoch, height, PES, self.high_qc.clone())
             .await;
-        self.broadcast_pes_propose(block, proof)
-            .await
-            .expect("Failed to send the PES block");
+        self.broadcast_pes_propose(block, proof).await?;
         Ok(())
     }
 
@@ -1836,7 +1844,7 @@ impl Core {
                 .await;
             self.broadcast_opt_propose(block)
                 .await
-                .expect("Failed to send the OPT block");
+                .expect("Failed to send the first OPT block");
         }
 
         if self.pes_path {
