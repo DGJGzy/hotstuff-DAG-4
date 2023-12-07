@@ -603,18 +603,21 @@ impl Core {
         if let Some(vote) = self.make_opt_vote(block).await {
             debug!("Created hs {:?}", vote);
             //3. broadcast vote
-
-            let message = ConsensusMessage::HSVote(vote.clone());
-            Synchronizer::transmit(
-                message,
-                &self.name,
-                None,
-                &self.network_filter,
-                &self.committee,
-                OPT,
-            )
-            .await?;
-            self.handle_opt_vote(&vote).await?;
+            let leader = self.leader_elector.get_leader(self.height + 1);
+            if leader != self.name {
+                let message = ConsensusMessage::HSVote(vote.clone());
+                Synchronizer::transmit(
+                    message,
+                    &self.name,
+                    Some(&leader),
+                    &self.network_filter,
+                    &self.committee,
+                    OPT,
+                )
+                .await?;
+            } else {
+                self.handle_opt_vote(&vote).await?;
+            }
         }
         Ok(())
     }
