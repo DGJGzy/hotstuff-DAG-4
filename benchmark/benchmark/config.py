@@ -103,12 +103,15 @@ class NodeParameters:
     def __init__(self, json):
         inputs = []
         try:
+            inputs += [json['consensus']['node_sync_delay']]
             inputs += [json['consensus']['timeout_delay']]
             inputs += [json['consensus']['sync_retry_delay']]
             inputs += [json['consensus']['max_payload_size']]
             inputs += [json['consensus']['min_block_delay']]
             inputs += [json['consensus']['network_delay']]
             inputs += [json['consensus']['ddos']]
+            inputs += [json['consensus']['random_ddos']]
+            inputs += [json['consensus']['random_ddos_chance']]
             inputs += [json['consensus']['exp']]
             inputs += [json['mempool']['queue_capacity']]
             inputs += [json['consensus']['sync_retry_delay']]
@@ -121,6 +124,7 @@ class NodeParameters:
         if not all(isinstance(x, int) for x in inputs):
             raise ConfigError('Invalid parameters type')
 
+        self.node_sync_dealy = json['consensus']['node_sync_delay']
         self.timeout_delay = json['consensus']['timeout_delay'] 
         self.network_delay = json['consensus']['network_delay'] 
         self.ddos = json['consensus']['ddos']

@@ -20,12 +20,15 @@ def local(ctx):
     }
     node_params = {
         'consensus': {
+            'node_sync_delay': 500,
             'timeout_delay': 1000,
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
             'min_block_delay': 0,
-            'network_delay': 1000, # message delay on the leaders' proposals during DDoS
+            'network_delay': 300, # message delay on the leaders' proposals during DDoS
             'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'random_ddos': False,
+            'random_ddos_chance': 5,
             'exp': 0 # multiplicative factor for exponential fallback
         },
         'mempool': {
@@ -110,12 +113,15 @@ def remote(ctx):
     }
     node_params = {
         'consensus': {
+            'node_sync_delay': 10,
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 1_000,
             'min_block_delay': 100,
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
             'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'random_ddos': False,
+            'random_ddos_chance': 5,
             'exp': 5 # multiplicative factor for exponential fallback
         },
         'mempool': {

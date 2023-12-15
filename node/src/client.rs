@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         .about("Benchmark client for HotStuff nodes.")
         .args_from_usage("<ADDR> 'The network address of the node where to send txs'")
         .args_from_usage("--timeout=<INT> 'The nodes timeout value'")
+        .args_from_usage("--synctime=<INT> 'The nodes network sync time'")
         .args_from_usage("--size=<INT> 'The size of each transaction in bytes'")
         .args_from_usage("--rate=<INT> 'The rate (txs/s) at which to send the transactions'")
         .args_from_usage("--nodes=[ADDR]... 'Network addresses that must be reachable before starting the benchmark.'")
@@ -49,6 +50,11 @@ async fn main() -> Result<()> {
         .unwrap()
         .parse::<u64>()
         .context("The timeout value must be a non-negative integer")?;
+    let synctime = matches
+        .value_of("synctime")
+        .unwrap()
+        .parse::<u64>()
+        .context("The timeout value must be a non-negative integer")?;
     let nodes = matches
         .values_of("nodes")
         .unwrap_or_default()
@@ -65,6 +71,7 @@ async fn main() -> Result<()> {
         size,
         rate,
         timeout,
+        synctime,
         nodes,
     };
 
@@ -80,6 +87,7 @@ struct Client {
     size: usize,
     rate: u64,
     timeout: u64,
+    synctime: u64,
     nodes: Vec<SocketAddr>,
 }
 
@@ -161,7 +169,10 @@ impl Client {
         .await;
 
         // Then wait for the nodes to be synchronized.
-        info!("Waiting for all nodes to be synchronized...");
-        sleep(Duration::from_millis(2 * self.timeout)).await;
+        info!(
+            "Waiting for all nodes to be synchronized...(timeout={})",
+            self.timeout
+        );
+        sleep(Duration::from_millis(self.synctime)).await;
     }
 }

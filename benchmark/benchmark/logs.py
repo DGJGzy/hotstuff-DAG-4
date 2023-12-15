@@ -49,7 +49,7 @@ class LogParser:
         sizes = self._merge_results([x.items() for x in sizes])
         
         self.sizes = {
-            k: sizes[k] for k,_ in self.commits.items() if k in sizes
+            k[:44]: sizes[k[:44]] for k,_ in self.h_commits.items() if k[:44] in sizes
         }
 
         self.timeouts = max(timeouts)
@@ -95,18 +95,18 @@ class LogParser:
         if search(r'panic', log) is not None:
             raise ParseError('Client(s) panicked')
 
-        tmp_p = findall(r'\[(.*Z) .* Created B(\d+)\(([^ ]+)\) epoch (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _ in tmp_p]
+        tmp_p = findall(r'\[(.*Z) .* Created B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
+        tmp = [(d, self._to_posix(t)) for t, _, d, _ , _ in tmp_p]
         proposals = self._merge_results([tmp])
 
-        tmp = [(d+e+"="+h,self._to_posix(t)) for t, h, d, e in tmp_p]
+        tmp = [(d+e+"="+h+"="+g,self._to_posix(t)) for t, h, d, e, g in tmp_p]
         h_proposals = self._merge_results([tmp])
 
-        tmp_c = findall(r'\[(.*Z) .* Committed B(\d+)\(([^ ]+)\) epoch (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _ in tmp_c]
+        tmp_c = findall(r'\[(.*Z) .* Committed B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
+        tmp = [(d, self._to_posix(t)) for t, _, d, _, _ in tmp_c]
         commits = self._merge_results([tmp])
 
-        tmp = [(d+e+"="+h,self._to_posix(t)) for t, h, d, e in tmp_c]
+        tmp = [(d+e+"="+h+"="+g,self._to_posix(t)) for t, h, d, e, g in tmp_c]
         h_commits = self._merge_results([tmp])
 
         tmp = findall(r'Payload ([^ ]+) contains (\d+) B', log)
