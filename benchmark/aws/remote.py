@@ -239,7 +239,7 @@ class Bench:
 
         # Wait for the nodes to synchronize
         Print.info('Waiting for the nodes to synchronize...')
-        sleep(node_parameters.timeout_delay / 1000)
+        sleep(node_parameters.node_sync_dealy / 1000)
 
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
