@@ -805,13 +805,13 @@ impl Core {
             return Err(ConsensusError::EpochEnd(self.epoch));
         }
 
-        if *self
-            .spb_abandon_flag
-            .entry((proof.height, proof.round))
-            .or_insert(false)
-        {
-            return Ok(());
-        }
+        // if *self
+        //     .spb_abandon_flag
+        //     .entry((proof.height, proof.round))
+        //     .or_insert(false)
+        // {
+        //     return Ok(());
+        // }
         if self.parameters.exp == 1 {
             //验证Proof是否正确
             value.verify(&self.committee, &proof, &self.pk_set)?;
