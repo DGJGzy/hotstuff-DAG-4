@@ -446,7 +446,7 @@ impl Core {
         // Make a new block.
         let payload = self
             .mempool_driver
-            .get(self.parameters.max_payload_size)
+            .get(self.parameters.max_payload_size, tag)
             .await;
         let mut block = Block::new(
             qc,
