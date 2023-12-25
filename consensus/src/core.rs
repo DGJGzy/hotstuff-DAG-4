@@ -408,14 +408,6 @@ impl Core {
                     .await;
                 self.broadcast_opt_propose(block).await?;
             }
-
-            if self.pes_path {
-                let message =
-                    ConsensusMessage::DelayProPose(self.epoch, self.height, self.high_qc.clone());
-                if let Err(e) = self.tx_smvba.send(message).await {
-                    warn!("Failed to send block through the smvba channel: {}", e);
-                }
-            }
         }
         Ok(())
     }
@@ -490,6 +482,14 @@ impl Core {
             OPT,
         )
         .await?;
+
+        if self.pes_path {
+            let message =
+                ConsensusMessage::DelayProPose(self.epoch, self.height, self.high_qc.clone());
+            if let Err(e) = self.tx_smvba.send(message).await {
+                warn!("Failed to send block through the smvba channel: {}", e);
+            }
+        }
         self.process_opt_block(&block).await?;
         // Wait for the minimum block delay.
         sleep(Duration::from_millis(self.parameters.min_block_delay)).await;
@@ -1848,14 +1848,6 @@ impl Core {
             self.broadcast_opt_propose(block)
                 .await
                 .expect("Failed to send the first OPT block");
-        }
-
-        if self.pes_path {
-            let message =
-                ConsensusMessage::DelayProPose(self.epoch, self.height, self.high_qc.clone());
-            if let Err(e) = self.tx_smvba.send(message).await {
-                warn!("Failed to send block through the smvba channel: {}", e);
-            }
         }
 
         // This is the main loop: it processes incoming blocks and votes,
