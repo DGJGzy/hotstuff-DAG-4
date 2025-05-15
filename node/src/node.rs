@@ -1,8 +1,8 @@
 use crate::config::Export as _;
 use crate::config::{Committee, Parameters, Secret};
-use consensus::{Block, Consensus, ConsensusError, Protocol};
+use consensus::{Block, Consensus, ConsensusError};
 use crypto::{SecretShare, SignatureService};
-use log::{info, warn};
+use log::{info};
 use mempool::{Mempool, MempoolError};
 use store::{Store, StoreError};
 use thiserror::Error;
@@ -66,16 +66,6 @@ impl Node {
         let signature_service =
             SignatureService::new(secret_key, Some(tss_keys.secret.into_inner()));
 
-        let protocol = match parameters.protocol {
-            0 => Protocol::HotStuff,
-            1 => Protocol::HotStuffAndSMVBA,
-            2 => Protocol::SMVBA,
-            _ => {
-                warn!("Undefined protocol type!");
-                Protocol::Others
-            }
-        };
-
         // Make a new mempool.
         Mempool::run(
             //用于交易的缓存
@@ -85,7 +75,6 @@ impl Node {
             store.clone(),
             signature_service.clone(),
             tx_consensus.clone(), //LOOPBACK
-            tx_smvba.clone(),
             rx_consensus_mempool, //Get ,Verify,Clean
         )?;
 
@@ -103,7 +92,6 @@ impl Node {
             rx_smvba,
             tx_consensus_mempool,
             tx_commit,
-            protocol,
         )
         .await?;
 

@@ -1,9 +1,8 @@
 use crate::config::Committee;
-use crate::core::ConsensusMessage;
+use crate::core::{ConsensusMessage, HOTSTUFF};
 use crate::error::ConsensusResult;
 use crate::filter::FilterInput;
 use crate::messages::{Block, QC};
-use crate::OPT;
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -23,7 +22,7 @@ const TIMER_ACCURACY: u64 = 5_000;
 
 pub struct Synchronizer {
     store: Store,
-    inner_channel: Sender<Block>,
+    inner_channel: Sender<(Vec<(PublicKey, Digest)>, Option<Block>)>,
 }
 
 impl Synchronizer {
@@ -35,51 +34,77 @@ impl Synchronizer {
         core_channel: Sender<ConsensusMessage>,
         sync_retry_delay: u64,
     ) -> Self {
-        let (tx_inner, mut rx_inner): (_, Receiver<Block>) = channel(10000);
+        let (tx_inner, mut rx_inner)
+            : (_, Receiver<(Vec<(PublicKey, Digest)>, Option<Block>)>) = channel(10000); 
+        let mut store_copy = store.clone();
 
-        let store_copy = store.clone();
         tokio::spawn(async move {
             let mut waiting = FuturesUnordered::new();
-            let mut pending = HashSet::new();
-            let mut requests = HashMap::new();
+            let mut pending = HashMap::new();
+            let mut demands: HashMap<Digest, HashSet<Digest>> = HashMap::new();
 
             let timer = sleep(Duration::from_millis(TIMER_ACCURACY));
             tokio::pin!(timer);
             loop {
                 tokio::select! {
-                    Some(block) = rx_inner.recv() => {
-                        if pending.insert(block.digest()) {
-                            let parent = block.parent().clone();
-                            let fut = Self::waiter(store_copy.clone(), parent.clone(), block);
-                            waiting.push(fut);
+                    Some((requests, block)) = rx_inner.recv() => {
+                        for (author, digest) in requests {
+                            // avoid repeated requests
+                            if let Ok(Some(_)) = store_copy.read(digest.to_vec()).await {
+                                continue;
+                            }
 
-                            if !requests.contains_key(&parent){
-                                debug!("Requesting sync for block {}", parent);
+                            if !pending.contains_key(&digest) {
+                                let fut = Self::waiter(store_copy.clone(), digest.clone(), block.clone());
+                                waiting.push(fut);
+
+                                debug!("Requesting sync for block {}", digest);
                                 let now = SystemTime::now()
                                     .duration_since(UNIX_EPOCH)
                                     .expect("Failed to measure time")
                                     .as_millis();
-                                requests.insert(parent.clone(), now);
-                                let message = ConsensusMessage::SyncRequest(parent, name);
-                                Self::transmit(message, &name, None, &network_filter, &committee,OPT).await.unwrap();
+
+                                pending.insert(digest.clone(), (now, block.clone()));
+                                if block.is_some() {
+                                    demands.entry(block.clone().unwrap().digest())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(digest.clone());
+                                }
+
+                                let message = ConsensusMessage::SyncRequest(digest, name);
+                                Self::transmit(
+                                    message, 
+                                    &name, 
+                                    Some(&author), 
+                                    &network_filter, 
+                                    &committee,
+                                    HOTSTUFF,
+                                ).await.unwrap();
                             }
                         }
                     },
                     Some(result) = waiting.next() => match result {
-                        Ok(block) => {
-                            debug!("consensus sync loopback");
-                            let _ = pending.remove(&block.digest());
-                            let _ = requests.remove(&block.parent());
-                            let message = ConsensusMessage::HsLoopBack(block);
-                            if let Err(e) = core_channel.send(message).await {
-                                panic!("Failed to send message through core channel: {}", e);
+                        Ok((request_block, block)) => {
+                            debug!("Received sync response for block {}", request_block.digest());
+                            let _ = pending.remove(&request_block.digest());
+                            if block.is_some() {
+                                let digest = block.clone().unwrap().digest();
+                                let demands_set = demands.get_mut(&digest).unwrap();
+                                demands_set.remove(&request_block.digest());
+                                if demands_set.is_empty() {
+                                    demands.remove(&digest);
+                                    let message = ConsensusMessage::LoopBack(block.unwrap());
+                                    if let Err(e) = core_channel.send(message).await {
+                                        panic!("Failed to send message through core channel: {}", e);
+                                    }
+                                }
                             }
                         },
                         Err(e) => error!("{}", e)
                     },
                     () = &mut timer => {
                         // This implements the 'perfect point to point link' abstraction.
-                        for (digest, timestamp) in &requests {
+                        for (digest, (timestamp, _)) in &pending {
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .expect("Failed to measure time")
@@ -87,7 +112,14 @@ impl Synchronizer {
                             if timestamp + (sync_retry_delay as u128) < now {
                                 debug!("Requesting sync for block {} (retry)", digest);
                                 let message = ConsensusMessage::SyncRequest(digest.clone(), name);
-                                Self::transmit(message, &name, None, &network_filter, &committee,OPT).await.unwrap();
+                                Self::transmit(
+                                    message, 
+                                    &name, 
+                                    None, 
+                                    &network_filter, 
+                                    &committee,
+                                    HOTSTUFF,
+                                ).await.unwrap();
                             }
                         }
                         timer.as_mut().reset(Instant::now() + Duration::from_millis(TIMER_ACCURACY));
@@ -102,9 +134,9 @@ impl Synchronizer {
         }
     }
 
-    async fn waiter(mut store: Store, wait_on: Digest, deliver: Block) -> ConsensusResult<Block> {
-        let _ = store.notify_read(wait_on.to_vec()).await?;
-        Ok(deliver)
+    async fn waiter(mut store: Store, wait_on: Digest, block: Option<Block>) -> ConsensusResult<(Block, Option<Block>)> {
+        let bytes = store.notify_read(wait_on.to_vec()).await?;
+        Ok((bincode::deserialize(&bytes)?, block))
     }
 
     pub async fn transmit(
@@ -117,14 +149,14 @@ impl Synchronizer {
     ) -> ConsensusResult<()> {
         let addresses = if let Some(to) = to {
             debug!("Sending {:?} to {}", message, to);
-            if tag == OPT {
+            if tag == HOTSTUFF {
                 vec![committee.address(to)?]
             } else {
                 vec![committee.smvba_address(to)?]
             }
         } else {
             debug!("Broadcasting {:?}", message);
-            if tag == OPT {
+            if tag == HOTSTUFF {
                 committee.broadcast_addresses(from)
             } else {
                 committee.smvba_broadcast_addresses(from)
@@ -137,19 +169,7 @@ impl Synchronizer {
     }
 
     pub async fn get_parent_block(&mut self, block: &Block) -> ConsensusResult<Option<Block>> {
-        if block.qc == QC::genesis() {
-            return Ok(Some(Block::genesis()));
-        }
-        let parent = block.parent();
-        match self.store.read(parent.to_vec()).await? {
-            Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
-            None => {
-                if let Err(e) = self.inner_channel.send(block.clone()).await {
-                    panic!("Failed to send request to synchronizer: {}", e);
-                }
-                Ok(None)
-            }
-        }
+        Ok(self.get_block(block.author, block.parent(), Some(block.clone())).await?)
     }
 
     pub async fn get_ancestors(
@@ -160,10 +180,31 @@ impl Synchronizer {
             Some(b) => b,
             None => return Ok(None),
         };
-        let b0 = self
-            .get_parent_block(&b1)
-            .await?
-            .expect("We should have all ancestors of delivered blocks");
+        let b0 = match self.get_parent_block(&b1).await? {
+            Some(b) => b,
+            None => return Ok(None),
+        };
         Ok(Some((b0, b1)))
+    }
+
+    // If the block is not in the store, it will be requested from the network.
+    pub async fn get_block(&mut self, author: PublicKey, digest: &Digest, block: Option<Block>) -> ConsensusResult<Option<Block>> {
+        if digest.clone() == QC::genesis().hash {
+            return Ok(Some(Block::genesis()));
+        }
+
+        match self.store.read(digest.to_vec()).await? {
+            Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
+            None => {
+                if let Err(e) = self
+                    .inner_channel      
+                    .send((vec![(author, digest.clone())], block))
+                    .await 
+                {
+                    panic!("Failed to send request to synchronizer: {}", e);
+                }
+                Ok(None)
+            }
+        }
     }
 }

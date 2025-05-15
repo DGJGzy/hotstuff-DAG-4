@@ -40,18 +40,13 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        proposals, commits, sizes, self.received_samples, timeouts, self.configs,h_proposals,h_commits \
+        proposals, commits, sizes, self.received_samples, timeouts, self.configs \
             = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
-        self.h_proposals = self._merge_results([x.items() for x in h_proposals])
-        self.h_commits = self._merge_results([x.items() for x in h_commits])
-        sizes = self._merge_results([x.items() for x in sizes])
-        
         self.sizes = {
-            k[:44]: sizes[k[:44]] for k,_ in self.h_commits.items() if k[:44] in sizes
+            k: v for x in sizes for k, v in x.items() if k in self.commits
         }
-
         self.timeouts = max(timeouts)
 
         # Check whether clients missed their target rate.
@@ -95,19 +90,13 @@ class LogParser:
         if search(r'panic', log) is not None:
             raise ParseError('Client(s) panicked')
 
-        tmp_p = findall(r'\[(.*Z) .* Created B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _ , _ in tmp_p]
+        tmp = findall(r'\[(.*Z) .* Created B\d+ -> ([^ ]+=)', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
         proposals = self._merge_results([tmp])
 
-        tmp = [(d+e+"="+h+"="+g,self._to_posix(t)) for t, h, d, e, g in tmp_p]
-        h_proposals = self._merge_results([tmp])
-
-        tmp_c = findall(r'\[(.*Z) .* Committed B(\d+)\(([^ ]+)\) epoch (\d+) tag (\d+)', log)
-        tmp = [(d, self._to_posix(t)) for t, _, d, _, _ in tmp_c]
+        tmp = findall(r'\[(.*Z) .* Committed B\d+ -> ([^ ]+=)', log)
+        tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
-
-        tmp = [(d+e+"="+h+"="+g,self._to_posix(t)) for t, h, d, e, g in tmp_c]
-        h_commits = self._merge_results([tmp])
 
         tmp = findall(r'Payload ([^ ]+) contains (\d+) B', log)
         sizes = {d: int(s) for d, s in tmp}
@@ -153,7 +142,7 @@ class LogParser:
             }
         }
 
-        return proposals, commits, sizes, samples, timeouts, configs,h_proposals,h_commits
+        return proposals, commits, sizes, samples, timeouts, configs
 
     def _to_posix(self, string):
         x = datetime.fromisoformat(string.replace('Z', '+00:00'))
@@ -170,7 +159,7 @@ class LogParser:
         return tps, bps, duration
 
     def _consensus_latency(self):
-        latency = [c - self.h_proposals[d] for d, c in self.h_commits.items()]
+        latency = [c - self.proposals[d] for d, c in self.commits.items()]
         return mean(latency) if latency else 0
 
     def _end_to_end_throughput(self):

@@ -14,8 +14,8 @@ pub enum PayloadStatus {
 
 #[derive(Debug)]
 pub enum ConsensusMempoolMessage {
-    Get(usize, oneshot::Sender<Vec<Digest>>, u8),
-    Verify(Box<Block>, oneshot::Sender<PayloadStatus>, u8),
+    Get(usize, oneshot::Sender<Vec<Digest>>),
+    Verify(Box<Block>, oneshot::Sender<PayloadStatus>),
     Cleanup(Vec<Digest>, SeqNumber),
 }
 
@@ -28,9 +28,9 @@ impl MempoolDriver {
         Self { mempool_channel }
     }
 
-    pub async fn get(&mut self, max: usize, tag: u8) -> Vec<Digest> {
+    pub async fn get(&mut self, max: usize) -> Vec<Digest> {
         let (sender, receiver) = oneshot::channel();
-        let message = ConsensusMempoolMessage::Get(max, sender, tag);
+        let message = ConsensusMempoolMessage::Get(max, sender);
         self.mempool_channel
             .send(message)
             .await
@@ -40,9 +40,9 @@ impl MempoolDriver {
             .expect("Failed to receive payload from mempool")
     }
 
-    pub async fn verify(&mut self, block: Block, tag: u8) -> ConsensusResult<bool> {
+    pub async fn verify(&mut self, block: Block) -> ConsensusResult<bool> {
         let (sender, receiver) = oneshot::channel();
-        let message = ConsensusMempoolMessage::Verify(Box::new(block), sender, tag);
+        let message = ConsensusMempoolMessage::Verify(Box::new(block), sender);
         self.mempool_channel
             .send(message)
             .await
@@ -57,22 +57,7 @@ impl MempoolDriver {
         }
     }
 
-    // pub async fn cleanup(&mut self, b0: &Block, b1: &Block, block: &Block) {
-    //     let digests = b0
-    //         .payload
-    //         .iter()
-    //         .cloned()
-    //         .chain(b1.payload.iter().cloned())
-    //         .chain(block.payload.iter().cloned())
-    //         .collect();
-    //     let message = ConsensusMempoolMessage::Cleanup(digests, block.height);
-    //     self.mempool_channel
-    //         .send(message)
-    //         .await
-    //         .expect("Failed to send message to mempool");
-    // }
-
-    pub async fn cleanup_par(&mut self, b0: &Block) {
+    pub async fn cleanup(&mut self, b0: &Block) {
         let digests = b0.payload.iter().cloned().collect();
         let message = ConsensusMempoolMessage::Cleanup(digests, b0.height);
         self.mempool_channel

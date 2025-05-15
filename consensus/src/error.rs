@@ -105,11 +105,11 @@ pub enum ConsensusError {
     #[error("Malformed block {0}")]
     MalformedBlock(Digest),
 
-    #[error("Received block {digest} from leader {leader} at round {round}")]
-    WrongLeader {
+    #[error("Received block {digest} from {author} at height {height}")]
+    WrongAuthor {
         digest: Digest,
-        leader: PublicKey,
-        round: SeqNumber,
+        author: PublicKey,
+        height: SeqNumber,
     },
 
     #[error("Invalid payload")]
@@ -121,4 +121,7 @@ pub enum ConsensusError {
         rd2: SeqNumber,
         rd3: SeqNumber,
     },
+
+    #[error("Invalid phase")]
+    InvalidPhase(u8),
 }

@@ -1,4 +1,4 @@
-use crate::config::{Committee, Parameters, Protocol};
+use crate::config::{Committee, Parameters};
 use crate::core::{ConsensusMessage, Core};
 use crate::error::ConsensusResult;
 use crate::filter::Filter;
@@ -7,7 +7,7 @@ use crate::mempool::{ConsensusMempoolMessage, MempoolDriver};
 use crate::messages::Block;
 use crate::synchronizer::Synchronizer;
 use crypto::{PublicKey, SignatureService};
-use log::info;
+use log::{info};
 use network::{NetReceiver, NetSender};
 use store::Store;
 use threshold_crypto::PublicKeySet;
@@ -35,7 +35,6 @@ impl Consensus {
         rx_smvba: Receiver<ConsensusMessage>,
         tx_consensus_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Block>,
-        protocol: Protocol,
     ) -> ConsensusResult<()> {
         info!(
             "Consensus timeout delay set to {} ms",
@@ -115,89 +114,25 @@ impl Consensus {
         )
         .await;
         sleep(Duration::from_millis(parameters.node_sync_delay)).await;
-        match protocol {
-            Protocol::HotStuff => {
-                // Run HotStuff
-                let mut opt_path = Core::new(
-                    name,
-                    committee,
-                    parameters,
-                    signature_service,
-                    pk_set,
-                    store,
-                    leader_elector,
-                    mempool_driver,
-                    synchronizer,
-                    /* core_channel */ rx_core,
-                    tx_core,
-                    rx_smvba,
-                    tx_smvba,
-                    /* network_filter */ tx_filter,
-                    tx_filter_smvba,
-                    /* commit_channel */ tx_commit,
-                    true,
-                    false,
-                );
-                tokio::spawn(async move {
-                    opt_path.run_epoch().await;
-                });
-            }
-            Protocol::HotStuffAndSMVBA => {
-                // Run AsyncHotStuff
-                let mut opt_with_pes_path = Core::new(
-                    name,
-                    committee,
-                    parameters,
-                    signature_service,
-                    pk_set,
-                    store,
-                    leader_elector,
-                    mempool_driver,
-                    synchronizer,
-                    /* core_channel */ rx_core,
-                    tx_core,
-                    rx_smvba,
-                    tx_smvba,
-                    /* network_filter */ tx_filter,
-                    tx_filter_smvba,
-                    /* commit_channel */ tx_commit,
-                    true,
-                    true,
-                );
-                tokio::spawn(async move {
-                    opt_with_pes_path.run_epoch().await;
-                });
-            }
-            Protocol::SMVBA => {
-                // Run TwoChainVABA, which is just fallback with timeout=0, i.e., immediately send timeout after exiting a fallback
-                let mut pes_path = Core::new(
-                    name,
-                    committee,
-                    parameters,
-                    signature_service,
-                    pk_set,
-                    store,
-                    leader_elector,
-                    mempool_driver,
-                    synchronizer,
-                    /* core_channel */ rx_core,
-                    tx_core,
-                    rx_smvba,
-                    tx_smvba,
-                    /* network_filter */ tx_filter,
-                    tx_filter_smvba,
-                    /* commit_channel */ tx_commit,
-                    false,
-                    true,
-                );
-                tokio::spawn(async move {
-                    pes_path.run_epoch().await;
-                });
-            }
-            _ => {
-                return Ok(());
-            }
-        }
+
+        tokio::spawn(async move {
+            Core::new(
+                name,
+                committee,
+                parameters,
+                signature_service,
+                pk_set,
+                store,
+                leader_elector,
+                mempool_driver,
+                synchronizer,
+                /* core_channel */ rx_core,
+                rx_smvba,
+                /* network_filter */ tx_filter,
+                tx_filter_smvba,
+                /* commit_channel */ tx_commit,
+            ).run().await;
+        });
 
         Ok(())
     }

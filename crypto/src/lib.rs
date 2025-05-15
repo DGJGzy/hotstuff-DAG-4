@@ -111,6 +111,12 @@ impl<'de> Deserialize<'de> for PublicKey {
     }
 }
 
+impl AsRef<[u8]> for PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct SecretKey([u8; 64]);
 

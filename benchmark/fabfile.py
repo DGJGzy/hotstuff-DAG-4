@@ -12,8 +12,8 @@ from aws.remote import Bench, BenchError
 def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
-        'nodes': 4,
-        'rate': 1000,
+        'nodes': 10,
+        'rate': 60000,
         'tx_size': 512,
         'faults': 0,
         'duration': 10,
@@ -25,10 +25,10 @@ def local(ctx):
             'sync_retry_delay': 10_000,
             'max_payload_size': 500,
             'min_block_delay': 0,
-            'network_delay': 300, # message delay on the leaders' proposals during DDoS
+            'network_delay': 300, # message delay on the leaders' proposals during DDoS, valid when ddos is True
             'ddos': False, # True for DDoS attack on the leader, False otherwise
-            'random_ddos': False,
-            'random_ddos_chance': 5,
+            'random_ddos': False, # 100% delay
+            'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0 # multiplicative factor for exponential fallback
         },
         'mempool': {
@@ -37,7 +37,7 @@ def local(ctx):
             'max_payload_size': 15_000,
             'min_block_delay': 0
         },
-        'protocol': 1, # 0 for 2-chain HotStuff, 1 for ParBFT, 2 for SMVBA
+        'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA, now unused
     }
     try:
         ret = LocalBench(bench_params, node_params).run(debug=False).result()

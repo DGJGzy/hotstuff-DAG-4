@@ -2,7 +2,6 @@ use crate::config::Committee;
 use crate::core::MempoolMessage;
 use crate::error::{MempoolError, MempoolResult};
 use bytes::Bytes;
-use consensus::OPT;
 use consensus::{Block, ConsensusMessage, SeqNumber};
 use crypto::Hash as _;
 use crypto::{Digest, PublicKey};
@@ -21,7 +20,7 @@ use tokio::time::{sleep, Duration, Instant};
 pub mod synchronizer_tests;
 
 enum SynchronizerMessage {
-    Sync(HashSet<Digest>, Block, u8),
+    Sync(HashSet<Digest>, Block),
     Clean(SeqNumber),
 }
 
@@ -33,7 +32,6 @@ pub struct Synchronizer {
 impl Synchronizer {
     pub fn new(
         consensus_channel: Sender<ConsensusMessage>,
-        consensus_channel_smvba: Sender<ConsensusMessage>,
         store: Store,
         name: PublicKey,
         committee: Committee,
@@ -53,7 +51,7 @@ impl Synchronizer {
             loop {
                 tokio::select! {
                     Some(message) = rx_inner.recv() => match message {
-                        SynchronizerMessage::Sync(mut missing, block,tag) => {//等待缺失的payload
+                        SynchronizerMessage::Sync(mut missing, block) => {
                             // TODO [issue #7]: A bad node may make us run out of memory by sending many blocks
                             // with different round numbers or different payloads.
 
@@ -67,8 +65,8 @@ impl Synchronizer {
                             let wait_for = missing.iter().cloned().map(|x| (x, store_copy.clone())).collect();
                             let (tx_cancel, rx_cancel) = channel(1);
                             pending.insert(block_digest, (round, tx_cancel));
-                            let fut = Self::waiter(wait_for, block, rx_cancel,tag);
-                            waiting.push(fut);//存入等待队列中
+                            let fut = Self::waiter(wait_for, block, rx_cancel);
+                            waiting.push(fut);
 
                             let missing: Vec<_> = missing
                                 .drain()
@@ -95,7 +93,7 @@ impl Synchronizer {
                                 .expect("Failed to send payload sync request");
                             }
                         },
-                        SynchronizerMessage::Clean(mut round) => {//将小于等于 round 轮的请求都清除
+                        SynchronizerMessage::Clean(mut round) => {
                             for (r, handler) in pending.values() {
                                 if r <= &round {
                                     let _ = handler.send(()).await;
@@ -105,32 +103,25 @@ impl Synchronizer {
                             requests.retain(|_, (r, _)| r > &mut round);
                         }
                     },
-                    Some(result) = waiting.next() => { //等待请求有结果了
+                    Some(result) = waiting.next() => { 
                         match result {
-                            Ok((Some(block),tag)) => {
+                            Ok(Some(block)) => {
                                 debug!("mempool sync loopback block {:?}", block);
                                 let _ = pending.remove(&block.digest());
-                                for x in &block.payload {//将已经收到的payload去除
+                                for x in &block.payload {
                                     let _ = requests.remove(x);
                                 }
-                                if tag == OPT{
-                                    let message = ConsensusMessage::HsLoopBack(block);
-                                    if let Err(e) = consensus_channel.send(message).await {
-                                        panic!("Failed to send message to consensus: {}", e);
-                                    }
-                                }else{
-                                    let message = ConsensusMessage::ParLoopBack(block);
-                                    if let Err(e) = consensus_channel_smvba.send(message).await {
-                                        panic!("Failed to send message to consensus: {}", e);
-                                    }
+ 
+                                let message = ConsensusMessage::LoopBack(block);
+                                if let Err(e) = consensus_channel.send(message).await {
+                                    panic!("Failed to send message to consensus: {}", e);
                                 }
-
                             },
-                            Ok((None,_)) => (),
+                            Ok(None) => (),
                             Err(e) => error!("{}", e)
                         }
                     },
-                    () = &mut timer => {//超时后，重复发送request
+                    () = &mut timer => {
                         let now = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .expect("Failed to measure time")
@@ -169,18 +160,16 @@ impl Synchronizer {
         mut missing: Vec<(Digest, Store)>,
         deliver: Block,
         mut handler: Receiver<()>,
-        tag: u8,
-    ) -> MempoolResult<(Option<Block>, u8)> {
-        //阻塞，等待有数据，并将其写完
+    ) -> MempoolResult<Option<Block>> {
         let waiting: Vec<_> = missing
             .iter_mut()
             .map(|(x, y)| y.notify_read(x.to_vec()))
             .collect();
         tokio::select! {
             result = try_join_all(waiting) => {
-                result.map(|_| (Some(deliver),tag)).map_err(MempoolError::from)
+                result.map(|_| (Some(deliver))).map_err(MempoolError::from)
             }
-            _ = handler.recv() => Ok((None,tag)),
+            _ = handler.recv() => Ok(None),
         }
     }
 
@@ -192,7 +181,6 @@ impl Synchronizer {
         network_channel: &Sender<NetMessage>,
     ) -> MempoolResult<()> {
         let addresses = if let Some(to) = to {
-            //如果没有指定发送地址，则广播给出自己以外的所有人
             debug!("Sending {:?} to {}", message, to);
             vec![committee.mempool_address(to)?]
         } else {
@@ -207,7 +195,7 @@ impl Synchronizer {
         Ok(())
     }
 
-    pub async fn verify_payload(&mut self, block: Block, tag: u8) -> MempoolResult<bool> {
+    pub async fn verify_payload(&mut self, block: Block) -> MempoolResult<bool> {
         let mut missing = HashSet::new();
         for digest in &block.payload {
             if self.store.read(digest.to_vec()).await?.is_none() {
@@ -217,10 +205,9 @@ impl Synchronizer {
         }
 
         if missing.is_empty() {
-            //区块中的那些payload是没有的
             return Ok(true);
         }
-        let message = SynchronizerMessage::Sync(missing, block, tag);
+        let message = SynchronizerMessage::Sync(missing, block);
         if let Err(e) = self.inner_channel.send(message).await {
             panic!("Failed to send message to synchronizer core: {}", e);
         }
