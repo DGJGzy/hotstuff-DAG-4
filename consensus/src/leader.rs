@@ -20,10 +20,10 @@ impl RandomLeaderElector {
         }
     }
 
-    pub fn get_leader(&self, height: SeqNumber) -> PublicKey {
+    pub fn get_leader(&self, epoch: SeqNumber) -> PublicKey {
         let mut keys: Vec<_> = self.committee.authorities.keys().cloned().collect();
         keys.sort();
-        keys[height as usize % self.committee.size()]
+        keys[epoch as usize % self.committee.size()]
     }
 
     // pub fn add_random_coin(&mut self, random_coin: RandomCoin) {

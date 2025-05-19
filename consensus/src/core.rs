@@ -1019,14 +1019,14 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                debug!("No such block!");
+                info!("No such block!");
                 return Ok(());
             }
             // commit block 
             self.commit(block.unwrap(), chain).await?;
             // advance epoch
             self.epoch += 1;
-            debug!("advance epoch, epoch: {}", self.epoch);
+            info!("advance epoch, epoch: {}", self.epoch);
             // reset previous leader chain
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
@@ -1089,7 +1089,7 @@ impl Core {
                             result
                         },
                         ConsensusMessage::LoopBack(block) => {
-                            debug!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
+                            info!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.process_block(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
@@ -1101,7 +1101,7 @@ impl Core {
                             result
                         },
                         ConsensusMessage::SyncReply(block) => {
-                            debug!("receive sync reply from {}", block.author);
+                            info!("receive sync reply from {}", block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
