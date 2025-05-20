@@ -342,11 +342,9 @@ impl Core {
             // Process the QC.
             self.process_qc(&qc, chain).await;
 
-            // Make a new block if this chain is led by us.
-            if self.name == chain.name {
-                let block = self.generate_proposal(chain, false).await;
-                self.broadcast_propose(block, chain).await?;
-            }
+            // Make a new block.
+            let block = self.generate_proposal(chain, false).await;
+            self.broadcast_propose(block, chain).await?;
         }
         Ok(())
     }
@@ -473,14 +471,14 @@ impl Core {
             // Block author is the qc maker.
             if let Some(vote) = self.make_vote(block, chain).await {
                 debug!("Created {:?}", vote);
-                if block.author == self.name {
+                if vote.proposer == self.name {
                     self.handle_vote(&vote, chain).await?;
                 } else {
-                    let message = ConsensusMessage::Vote(vote);
+                    let message = ConsensusMessage::Vote(vote.clone());
                     Synchronizer::transmit(
                         message,
                         &self.name,
-                        None,
+                        Some(&vote.proposer),
                         &self.network_filter,
                         &self.committee,
                         HOTSTUFF,
