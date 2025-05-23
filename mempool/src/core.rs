@@ -166,6 +166,10 @@ impl Core {
         let digest = payload.digest();
         payload.signature.verify(&digest, &author)?;
 
+        // #[cfg(feature = "benchmark")]
+        // // NOTE: This log entry is used to compute performance.
+        // info!("Payload {:?} contains {} B", digest, payload.size());
+
         // Store payload.
         // TODO [issue #18]: A bad node may make us store a lot of junk. There is no
         // limit to how many payloads they can send us, and we will store them all.
@@ -193,6 +197,8 @@ impl Core {
 
     async fn get_payload(&mut self, max: usize) -> MempoolResult<Vec<Digest>> {
         if self.opt_queue.is_empty() && self.pes_queue.is_empty() {
+            // #[cfg(feature = "benchmark")]
+            // info!("Empty!");
             if let Some(payload) = self.payload_maker.make().await {
                 let digest = payload.digest();
                 self.process_own_payload(&digest, payload).await?;
@@ -201,6 +207,8 @@ impl Core {
                 return Ok(Vec::new());
             }
         } 
+        // #[cfg(feature = "benchmark")]
+        // info!("Before:opt_queue_size: {}, pes_queue_size: {}", self.opt_queue.len(), self.pes_queue.len());
         let digest_len = Digest::default().size();
         let mut payload_len = max / digest_len;
         let mut digests = Vec::new();
@@ -232,7 +240,8 @@ impl Core {
         }
 
         digests.extend(pes_digests);
-
+        // #[cfg(feature = "benchmark")]
+        // info!("After:opt_queue_size: {}, pes_queue_size: {}", self.opt_queue.len(), self.pes_queue.len());
         Ok(digests)
     }
 

@@ -100,9 +100,12 @@ class LogParser:
 
         tmp = findall(r'Payload ([^ ]+) contains (\d+) B', log)
         sizes = {d: int(s) for d, s in tmp}
+        # sizes = {}      
+        # for d, s in tmp:
+        #     if d not in sizes:
+        #         sizes[d] = int(s)
 
         tmp = findall(r'Payload ([^ ]+) contains sample tx (\d+)', log)
-        tmp.reverse()
         samples = {int(s): d for d, s in tmp}
 
         tmp = findall(r'.* WARN .* Timeout', log)

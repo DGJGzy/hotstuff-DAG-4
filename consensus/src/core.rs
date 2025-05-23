@@ -185,23 +185,13 @@ impl Core {
         self.store.write(key, value).await;
     }
 
-    // async fn parbft2_smvba_delay(
-    //     time_out: SeqNumber,
-    //     epoch: SeqNumber,
-    //     height: SeqNumber,
-    //     qc: QC,
-    // ) -> (SeqNumber, SeqNumber, QC) {
-    //     sleep(Duration::from_millis(time_out)).await;
-    //     (epoch, height, qc)
-    // }
-
     fn increase_last_voted_round(&mut self, target: SeqNumber, chain: &mut Chain) {
         chain.last_voted_height = max(chain.last_voted_height, target);
     }
 
     async fn make_vote(&mut self, block: &Block, chain: &mut Chain) -> Option<Vote> {
-        // We can not vote for a block whose epoch and chain are corresponding.
-        if self.epoch > block.epoch && self.leader_elector.get_leader(block.epoch) == block.author {
+        // We can not vote for a block whose epoch smaller.
+        if self.epoch > block.epoch {
             return None;
         }
         // If we are changing view, we can not vote for current leader chain blocks.
@@ -210,7 +200,8 @@ impl Core {
         }
         // Check if we can vote for this block.
         let safety_rule_1 = block.height > chain.last_voted_height;
-        let safety_rule_2 = block.qc.height + 1 == block.height;
+        // Consider view-change.
+        let safety_rule_2 = block.qc.height + 1 == block.height || block.qc == QC::genesis();
 
         if !(safety_rule_1 && safety_rule_2) {
             return None;
@@ -262,7 +253,9 @@ impl Core {
     #[async_recursion]
     async fn commit(&mut self, block: Block, chain: &mut Chain) -> ConsensusResult<()> {
         let mut to_commit = VecDeque::new();
-        self.commit_prev_block(&block, chain, &mut to_commit).await?;
+        if !self.commit_prev_block(&block, chain, &mut to_commit).await? {
+            debug!("Failed to commit block");
+        }
 
         // Send all the newly committed blocks to the node's application layer.
         while let Some(block) = to_commit.pop_back() {
@@ -972,12 +965,12 @@ impl Core {
             return Ok(());
         }
         if self.phase == INIT_PHASE && self.tc_processed {
-            debug!("Epoch {}, enter VAL_PHASE", self.epoch);
+            info!("Epoch {}, enter VAL_PHASE", self.epoch);
             self.phase = VAL_PHASE;
         }
 
         if self.phase == VAL_PHASE && !self.bin_values.is_empty() {
-            debug!("Epoch {}, enter AUX_PHASE", self.epoch);
+            info!("Epoch {}, enter AUX_PHASE", self.epoch);
             self.phase = AUX_PHASE;
         }
 
@@ -989,7 +982,7 @@ impl Core {
             && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
                 .contains_key(&(self.epoch, self.aba_round)))
         {
-            debug!("Epoch {}, enter COIN_PHASE", self.epoch);
+            info!("Epoch {}, enter COIN_PHASE", self.epoch);
             self.phase = COIN_PHASE;
         }
 
@@ -1002,7 +995,7 @@ impl Core {
         // }
 
         if self.aba_output_val.is_some() {
-            debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
+            info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
             debug!("output_height: {}", output_height);
@@ -1029,9 +1022,8 @@ impl Core {
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
             // Broadcast new block.
-            if self.name == chain.name {
-                self.generate_proposal(chain, true).await;
-            }
+            let our_chain = self.pubkey_to_chain.get(&self.name).cloned().unwrap();
+            self.generate_proposal(&our_chain, true).await;
             // clean all data structure, only base epoch
             let current_epoch = self.epoch;
             self.is_view_change = false;
@@ -1068,19 +1060,19 @@ impl Core {
         
         loop {
             self.total_epoch += 1;
-            debug!("Epoch {}, leader: {}", self.total_epoch, self.leader_elector.get_leader(self.epoch));
+            info!("Epoch {}, leader: {}", self.total_epoch, self.leader_elector.get_leader(self.epoch));
             let result = tokio::select! {
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         ConsensusMessage::Propose(block) => {
-                            debug!("receive propose from {}", block.author);
+                            info!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
-                            debug!("receive vote from {}", vote.author);
+                            info!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
                             let result = self.handle_vote(&vote, &mut chain).await;
                             self.pubkey_to_chain.insert(vote.proposer, chain);
@@ -1094,7 +1086,7 @@ impl Core {
                             result
                         },                        
                         ConsensusMessage::SyncRequest(digest, sender) => {
-                            debug!("receive sync request {} from {}", digest, sender);
+                            info!("receive sync request {} from {}", digest, sender);
                             let result = self.handle_sync_request(digest, sender).await;
                             result
                         },
@@ -1111,7 +1103,7 @@ impl Core {
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            debug!("receive timeout from {}", timeout.author);
+                            info!("receive timeout from {}", timeout.author);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
@@ -1119,22 +1111,22 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            debug!("receive tc");
+                            info!("receive tc");
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            debug!("receive aba_val from {}, phase {}", aba_val.author, aba_val.phase);
+                            info!("receive aba_val from {}, phase {}", aba_val.author, aba_val.phase);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            debug!("receive aba_proof");
+                            info!("receive aba_proof");
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            debug!("receive aba_coin_share from {}", share.author);
+                            info!("receive aba_coin_share from {}", share.author);
                             let result = self.handle_coin_share(share).await;
                             result
                         },
