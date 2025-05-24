@@ -1,8 +1,7 @@
 use crate::config::Committee;
 use crate::core::SeqNumber;
 use crate::mempool::{ConsensusMempoolMessage, PayloadStatus};
-use crate::messages::{Block, HVote, QC};
-use crate::OPT;
+use crate::messages::{Block, Vote, QC};
 use crypto::Hash as _;
 use crypto::{generate_keypair, Digest, PublicKey, SecretKey, Signature};
 use rand::rngs::StdRng;
@@ -73,7 +72,7 @@ impl PartialEq for Block {
     }
 }
 
-impl HVote {
+impl Vote {
     pub fn new_from_key(
         hash: Digest,
         height: SeqNumber,
@@ -94,26 +93,11 @@ impl HVote {
     }
 }
 
-impl PartialEq for HVote {
+impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
         self.digest() == other.digest()
     }
 }
-
-// impl SPBVote {
-//     pub fn new_from_key(value: SPBValue, author: PublicKey) -> Self {
-//         Self {
-//             hash: value.digest(),
-//             phase: value.phase,
-//             height: value.block.height,
-//             epoch: value.block.epoch,
-//             round: value.round,
-//             proposer: value.block.author,
-//             author,
-//             signature_share,SignatureShare::,
-//         }
-//     }
-// }
 
 // Fixture.
 pub fn block() -> Block {
@@ -122,9 +106,9 @@ pub fn block() -> Block {
 }
 
 // Fixture.
-pub fn vote() -> HVote {
+pub fn vote() -> Vote {
     let (public_key, secret_key) = keys().pop().unwrap();
-    HVote::new_from_key(block().digest(), 1, block().author, public_key, &secret_key)
+    Vote::new_from_key(block().digest(), 1, block().author, public_key, &secret_key)
 }
 
 // Fixture.

@@ -2,7 +2,7 @@ use crate::config::{Committee, Stake};
 use crate::core::{SeqNumber, VAL_PHASE};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{ABAProof, ABAVal, RandomnessShare, Timeout, Vote, QC, TC};
-use crypto::{Digest, Hash as _, PublicKey, Signature};
+use crypto::{PublicKey, Signature};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use threshold_crypto::PublicKeySet;
 // use std::convert::TryInto;
@@ -14,7 +14,7 @@ pub mod aggregator_tests;
 #[derive(Clone)]
 pub struct Aggregator {
     committee: Committee,
-    votes_aggregators: HashMap<SeqNumber, HashMap<Digest, Box<QCMaker>>>,
+    votes_aggregators: HashMap<SeqNumber, Box<QCMaker>>,
     timeouts_aggregators: HashMap<SeqNumber, Box<TCMaker>>,
     aba_vals_aggregators: HashMap<(SeqNumber, SeqNumber, u8, u64), Box<ABAProofMaker>>,
     aba_randomcoin_aggregators: HashMap<(SeqNumber, SeqNumber), Box<ABARandomCoinMaker>>,
@@ -38,8 +38,6 @@ impl Aggregator {
         // Add the new vote to our aggregator and see if we have a QC.
         self.votes_aggregators
             .entry(vote.height)
-            .or_insert_with(HashMap::new)
-            .entry(vote.digest())
             .or_insert_with(|| Box::new(QCMaker::new()))
             .append(vote, &self.committee)
     }
@@ -73,8 +71,8 @@ impl Aggregator {
             .append(share, &self.committee, pk_set)
     }
 
-    pub fn cleanup(&mut self, epoch: &SeqNumber, round: &SeqNumber) {
-        self.votes_aggregators.retain(|k, _| k >= round);
+    pub fn cleanup(&mut self, epoch: &SeqNumber, height: &SeqNumber) {
+        self.votes_aggregators.retain(|k, _| k >= height);
         self.timeouts_aggregators.retain(|k, _| k >= epoch);
     }
 
@@ -110,7 +108,7 @@ impl QCMaker {
             ConsensusError::AuthorityReuseinQC(author)
         );
 
-        self.votes.push((author, vote.signature));
+        self.votes.push((author, vote.clone().signature));
         self.weight += committee.stake(&author);
 
         if self.weight >= committee.quorum_threshold() {

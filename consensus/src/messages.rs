@@ -85,13 +85,13 @@ impl Hash for Block {
         hasher.update(self.height.to_le_bytes());
         hasher.update(self.epoch.to_le_bytes());
         for x in &self.payload {
-            hasher.update(x);
+            hasher.update(&x.0);
         }
         for x in &self.references {
             hasher.update(&x.0);
-            hasher.update(&x.1);
+            hasher.update(&x.1.0);
         }
-        hasher.update(&self.qc.hash);
+        hasher.update(&self.qc.hash.0);
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -162,7 +162,7 @@ impl Vote {
 impl Hash for Vote {
     fn digest(&self) -> Digest {
         let mut hasher = Sha512::new();
-        hasher.update(&self.hash);
+        hasher.update(&self.hash.0);
         hasher.update(self.epoch.to_le_bytes());
         hasher.update(self.height.to_le_bytes());
         // hasher.update(self.proposer.0);

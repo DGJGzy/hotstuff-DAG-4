@@ -27,6 +27,7 @@ pub mod smvba_tests;
 
 pub type SeqNumber = u64; 
 
+const NEXT_EPOCH_HEIGHT: u64 = 10;
 const LAMBDA_VAL: u64 = 10; // We can change timeout condition by changing this value.
 pub const INIT_PHASE: u8 = 0;
 pub const VAL_PHASE: u8 = 1;
@@ -192,10 +193,13 @@ impl Core {
     async fn make_vote(&mut self, block: &Block, chain: &mut Chain) -> Option<Vote> {
         // We can not vote for a block whose epoch smaller.
         if self.epoch > block.epoch {
+            info!("FailVote 1, self.epoch: {}, block.epoch: {}", self.epoch, block.epoch);
             return None;
         }
         // If we are changing view, we can not vote for current leader chain blocks.
         if self.is_view_change && block.author == self.leader_elector.get_leader(self.epoch) {
+            info!("FailVote 2, view-change: {}, block.author: {}, leader: {}", 
+                self.is_view_change, block.author, self.leader_elector.get_leader(self.epoch));
             return None;
         }
         // Check if we can vote for this block.
@@ -204,6 +208,11 @@ impl Core {
         let safety_rule_2 = block.qc.height + 1 == block.height || block.qc == QC::genesis();
 
         if !(safety_rule_1 && safety_rule_2) {
+            if !safety_rule_1 {
+                info!("FailVote 3, block.height: {}, chain.last_voted_height: {}", block.height, chain.last_voted_height);
+            } else {
+                info!("FailVote 4, block.qc: {:?}, block.height: {}", block.qc, block.height);
+            } 
             return None;
         }
 
@@ -396,11 +405,12 @@ impl Core {
                 Some((*name, chain.high_qc.hash.clone()))
             })
             .collect();
-        let qc = if tag {
-            QC::genesis()
-        } else {
-            chain.high_qc.clone()
-        };
+        let mut qc = QC::genesis();
+        let mut block_epoch = self.epoch;
+        if !tag {
+            qc = chain.high_qc.clone();
+            block_epoch = qc.epoch;
+        } 
         // Make block
         let payload = self
             .mempool_driver
@@ -410,11 +420,30 @@ impl Core {
             qc,
             self.name,
             chain.height,
-            self.epoch,
+            block_epoch,
             payload,
             references,
             self.signature_service.clone(),
         ).await;
+        // let qc = if tag {
+        //     QC::genesis()
+        // } else {
+        //     chain.high_qc.clone()
+        // };
+        // // Make block
+        // let payload = self
+        //     .mempool_driver
+        //     .get(self.parameters.max_payload_size)
+        //     .await;
+        // let block = Block::new(
+        //     qc,
+        //     self.name,
+        //     chain.height,
+        //     self.epoch,
+        //     payload,
+        //     references,
+        //     self.signature_service.clone(),
+        // ).await;
 
         if !block.payload.is_empty() {
             info!("Created {}", block);
@@ -459,7 +488,7 @@ impl Core {
         // Ensure the block's round is as expected.
         // This check is important: it prevents bad leaders from producing blocks
         // far in the future that may cause overflow on the round number.
-        if block.height == chain.height {
+        if block.height == chain.height || block.qc == QC::genesis() {
             // See if we can vote for this block.
             // Block author is the qc maker.
             if let Some(vote) = self.make_vote(block, chain).await {
@@ -522,7 +551,7 @@ impl Core {
         // We can not commit block whose epoch is not the current epoch.(or bigger)
         if block.author == self.leader_elector.get_leader(self.epoch) {
             if let Some((b0, b1)) = self.process_block_prepare(block).await? {
-                if block.epoch <= self.epoch {
+                if !self.is_view_change && block.epoch <= self.epoch {
                    self.process_block_commit(b0, b1, chain).await?; 
                 }    
             }
@@ -556,7 +585,7 @@ impl Core {
         // Let's see if we have the block's data. If we don't, the mempool
         // will get it and then make us resume processing this block.
         if !self.mempool_driver.verify(block.clone()).await? {
-            debug!("Processing of {} suspended: missing payload", digest);
+            info!("Processing of {} suspended: missing payload", digest);
             return Ok(());
         }
 
@@ -604,7 +633,7 @@ impl Core {
             VAL_PHASE,
             self.signature_service.clone(),
         ).await;
-        let message = ConsensusMessage::ABAVal(aba_val);
+        let message = ConsensusMessage::ABAVal(aba_val.clone());
         Synchronizer::transmit(
             message, 
             &self.name, 
@@ -613,6 +642,7 @@ impl Core {
             &self.committee,
             TCVBA,
         ).await?;
+        self.handle_aba_val(aba_val).await?;
 
         Ok(())
     }
@@ -631,7 +661,8 @@ impl Core {
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if current_round + LAMBDA_VAL < other_chain.height {
                 self.is_view_change = true;
-                self.local_timeout_round(chain).await?
+                self.local_timeout_round(chain).await?;
+                break;
             }
         }
         Ok(())
@@ -1021,9 +1052,7 @@ impl Core {
             // reset previous leader chain
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
-            // Broadcast new block.
-            let our_chain = self.pubkey_to_chain.get(&self.name).cloned().unwrap();
-            self.generate_proposal(&our_chain, true).await;
+            chain.high_qc = QC::genesis();
             // clean all data structure, only base epoch
             let current_epoch = self.epoch;
             self.is_view_change = false;
@@ -1045,6 +1074,12 @@ impl Core {
             self.aba_coin_cache.retain(|(k, _), _| k >= &current_epoch);
             self.aux_value_nums.retain(|(k, _), _| k >= &current_epoch);
             self.aba_proof_cache.retain(|(k, _), _| k >= &current_epoch);
+            // Broadcast new block.
+            let mut our_chain = self.pubkey_to_chain.get(&self.name).cloned().unwrap();
+            our_chain.height += NEXT_EPOCH_HEIGHT;
+            let block = self.generate_proposal(&our_chain, true).await;
+            self.broadcast_propose(block, &mut our_chain).await?;
+            self.pubkey_to_chain.insert(self.name, our_chain);
         } else {
             self.process_aba_phase().await?;
         }
@@ -1057,6 +1092,7 @@ impl Core {
         let mut chain = self.pubkey_to_chain.get(&self.name).cloned().unwrap();
         let block = self.generate_proposal(&chain, false).await;
         let _ = self.broadcast_propose(block, &mut chain).await;
+        self.pubkey_to_chain.insert(self.name, chain);
         
         loop {
             self.total_epoch += 1;
@@ -1103,7 +1139,7 @@ impl Core {
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            info!("receive timeout from {}", timeout.author);
+                            info!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
@@ -1111,22 +1147,22 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            info!("receive tc");
+                            info!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            info!("receive aba_val from {}, phase {}", aba_val.author, aba_val.phase);
+                            info!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            info!("receive aba_proof");
+                            info!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            info!("receive aba_coin_share from {}", share.author);
+                            info!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
                             let result = self.handle_coin_share(share).await;
                             result
                         },

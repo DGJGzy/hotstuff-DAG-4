@@ -4,7 +4,7 @@ use crypto::Hash;
 #[test]
 fn add_vote() {
     let mut aggregator = Aggregator::new(committee());
-    let result = aggregator.add_hs_vote(vote());
+    let result = aggregator.add_vote(vote());
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
@@ -52,4 +52,17 @@ fn cleanup() {
     // Clean up the aggregator.
     aggregator.cleanup_hs_vote(&2);
     assert!(aggregator.hs_votes_aggregators.is_empty());
+}
+
+#[test]
+fn test_add_vote() {
+    use std::collections::HashMap;
+
+    let x = Digest([1; 32]);
+    let y = Digest([1; 32]);
+
+    let mut map = HashMap::new();
+    map.insert(x.clone(), "hello");
+
+    assert!(y == x); // 应为 true
 }
