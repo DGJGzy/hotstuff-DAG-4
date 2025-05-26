@@ -8,7 +8,6 @@ use std::fs;
 #[tokio::test]
 async fn verify_empty() {
     let (tx_consensus, _rx_consensus) = channel(1);
-    let (tx_consensus_smvba, _rx_consensus) = channel(1);
     let (tx_network, _rx_network) = channel(1);
     let store_path = ".db_test_verify_empty";
     let _ = fs::remove_dir_all(store_path);
@@ -16,14 +15,13 @@ async fn verify_empty() {
     let (name, _) = keys().pop().unwrap();
     let mut synchronizer = Synchronizer::new(
         tx_consensus,
-        tx_consensus_smvba,
         store,
         name,
         committee(),
         tx_network,
         /* sync_retry_delay */ 10_000,
     );
-    let result = synchronizer.verify_payload(block(), OPT).await;
+    let result = synchronizer.verify_payload(block()).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
@@ -31,7 +29,6 @@ async fn verify_empty() {
 #[tokio::test]
 async fn verify_wait() {
     let (tx_consensus, mut rx_consensus) = channel(1);
-    let (tx_consensus_smvba, mut _rx_consensus_smvba) = channel(1);
     let (tx_network, mut rx_network) = channel(1);
     let store_path = ".db_test_verify_wait";
     let _ = fs::remove_dir_all(store_path);
@@ -39,7 +36,6 @@ async fn verify_wait() {
     let (name, _) = keys().pop().unwrap();
     let mut synchronizer = Synchronizer::new(
         tx_consensus,
-        tx_consensus_smvba,
         store.clone(),
         name,
         committee(),
@@ -62,7 +58,7 @@ async fn verify_wait() {
     let author = block.author;
 
     // Ensure the synchronizer replies with WAIT.
-    let result = synchronizer.verify_payload(block, OPT).await;
+    let result = synchronizer.verify_payload(block).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 
@@ -86,7 +82,7 @@ async fn verify_wait() {
     let _ = store.write(payload_1.to_vec(), Vec::new()).await;
     let _ = store.write(payload_2.to_vec(), Vec::new()).await;
     match rx_consensus.recv().await {
-        Some(ConsensusMessage::HsLoopBack(b)) => assert_eq!(b.digest(), digest),
+        Some(ConsensusMessage::LoopBack(b)) => assert_eq!(b.digest(), digest),
         _ => assert!(false),
     }
 }

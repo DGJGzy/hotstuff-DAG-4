@@ -18,7 +18,6 @@ async fn core(
 ) {
     let (tx_network, rx_network) = channel(1);
     let (tx_consensus, _rx_consensus) = channel(1);
-    let (tx_consensus_smvba, _rx_consensus) = channel(1);
     let (tx_core, rx_core) = channel(1);
     let (tx_consensus_mempool, rx_consensus_mempool) = channel(1);
     let (tx_client, rx_client) = channel(1);
@@ -35,7 +34,6 @@ async fn core(
     let store = Store::new(store_path).unwrap();
     let synchronizer = Synchronizer::new(
         tx_consensus,
-        tx_consensus_smvba,
         store.clone(),
         name,
         committee(),
@@ -113,7 +111,7 @@ async fn get_payload() {
 
     // Get the next payload.
     let (sender, receiver) = oneshot::channel();
-    let message = ConsensusMempoolMessage::Get(64, sender, OPT);
+    let message = ConsensusMempoolMessage::Get(64, sender);
     tx_consensus.send(message).await.unwrap();
     let result = receiver.await.unwrap();
     assert_eq!(result, vec![payload().digest()]);

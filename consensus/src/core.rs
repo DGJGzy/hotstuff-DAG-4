@@ -22,8 +22,8 @@ use tokio::time::{sleep, Duration};
 pub mod core_tests;
 
 #[cfg(test)]
-#[path = "tests/smvba_tests.rs"]
-pub mod smvba_tests;
+#[path = "tests/tcvba_tests.rs"]
+pub mod tcvba_tests;
 
 pub type SeqNumber = u64; 
 

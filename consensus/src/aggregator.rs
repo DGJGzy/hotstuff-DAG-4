@@ -117,6 +117,7 @@ impl QCMaker {
                 hash: vote.hash.clone(),
                 epoch: vote.epoch,
                 height: vote.height,
+                proposer: vote.proposer,
                 votes: self.votes.clone(),
             }));
         }

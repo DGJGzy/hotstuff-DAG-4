@@ -165,7 +165,7 @@ impl Hash for Vote {
         hasher.update(&self.hash.0);
         hasher.update(self.epoch.to_le_bytes());
         hasher.update(self.height.to_le_bytes());
-        // hasher.update(self.proposer.0);
+        hasher.update(self.proposer.0);
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }
@@ -191,6 +191,7 @@ pub struct QC {
     pub hash: Digest,
     pub epoch: SeqNumber,
     pub height: SeqNumber,
+    pub proposer: PublicKey,
     pub votes: Vec<(PublicKey, Signature)>,
 }
 
@@ -233,6 +234,7 @@ impl Hash for QC {
         hasher.update(&self.hash);
         hasher.update(self.epoch.to_le_bytes());
         hasher.update(self.height.to_le_bytes());
+        hasher.update(self.proposer.0);
         Digest(hasher.finalize().as_slice()[..32].try_into().unwrap())
     }
 }

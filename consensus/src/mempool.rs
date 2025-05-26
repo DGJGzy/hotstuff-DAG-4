@@ -5,6 +5,10 @@ use crypto::Digest;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 
+#[cfg(test)]
+#[path = "tests/mempool_tests.rs"]
+pub mod mempool_tests;
+
 #[derive(Debug)]
 pub enum PayloadStatus {
     Accept,

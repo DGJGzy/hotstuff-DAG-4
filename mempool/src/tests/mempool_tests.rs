@@ -2,7 +2,7 @@ use super::*;
 use crate::common::{block, committee, keys, payload};
 use crate::config::Parameters;
 use bytes::Bytes;
-use consensus::{Block, PayloadStatus, OPT};
+use consensus::{Block, PayloadStatus};
 use crypto::Hash as _;
 use futures::future::try_join_all;
 use futures::sink::SinkExt as _;
@@ -35,7 +35,6 @@ async fn end_to_end() {
             let _ = fs::remove_dir_all(&store_path);
             let store = Store::new(&store_path).unwrap();
             let (tx_consensus, _rx_consensus) = channel(1);
-            let (tx_consensus_smvba, _rx_consensus) = channel(1);
             let (tx_consensus_mempool, rx_consensus_mempool) = channel(1);
 
             tokio::spawn(async move {
@@ -46,7 +45,6 @@ async fn end_to_end() {
                     store,
                     signature_service,
                     tx_consensus,
-                    tx_consensus_smvba,
                     rx_consensus_mempool,
                 )
                 .unwrap();
@@ -55,7 +53,7 @@ async fn end_to_end() {
                 let payload = vec![payload().digest()];
                 let block = Block { payload, ..block() };
                 let (sender, receiver) = oneshot::channel();
-                let message = ConsensusMempoolMessage::Verify(Box::new(block), sender, OPT);
+                let message = ConsensusMempoolMessage::Verify(Box::new(block), sender);
                 tx_consensus_mempool.send(message).await.unwrap();
                 match receiver.await {
                     Ok(PayloadStatus::Accept) => assert!(true),
