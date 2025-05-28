@@ -60,6 +60,7 @@ pub struct Chain {
     aggregator: Aggregator,
     high_qc: QC,
     height_to_digest: HashMap<SeqNumber, Digest>,
+    epoch: SeqNumber,
 }
 
 impl Chain {
@@ -72,6 +73,7 @@ impl Chain {
             aggregator: Aggregator::new(committee),
             high_qc: QC::genesis(),
             height_to_digest: HashMap::new(),
+            epoch: 0,
         }
     }
 }
@@ -192,8 +194,8 @@ impl Core {
 
     async fn make_vote(&mut self, block: &Block, chain: &mut Chain) -> Option<Vote> {
         // We can not vote for a block whose epoch smaller.
-        if self.epoch > block.epoch {
-            info!("FailVote 1, self.epoch: {}, block.epoch: {}", self.epoch, block.epoch);
+        if chain.epoch > block.epoch {
+            info!("FailVote 1, chain.epoch: {}, block.epoch: {}", chain.epoch, block.epoch);
             return None;
         }
         // If we are changing view, we can not vote for current leader chain blocks.
@@ -405,12 +407,11 @@ impl Core {
                 Some((*name, chain.high_qc.hash.clone()))
             })
             .collect();
-        let mut qc = QC::genesis();
-        let mut block_epoch = self.epoch;
-        if !tag {
-            qc = chain.high_qc.clone();
-            block_epoch = qc.epoch;
-        } 
+        let qc = if tag {
+            QC::genesis()
+        } else {
+            chain.high_qc.clone()
+        };
         // Make block
         let payload = self
             .mempool_driver
@@ -420,30 +421,11 @@ impl Core {
             qc,
             self.name,
             chain.height,
-            block_epoch,
+            chain.epoch,
             payload,
             references,
             self.signature_service.clone(),
         ).await;
-        // let qc = if tag {
-        //     QC::genesis()
-        // } else {
-        //     chain.high_qc.clone()
-        // };
-        // // Make block
-        // let payload = self
-        //     .mempool_driver
-        //     .get(self.parameters.max_payload_size)
-        //     .await;
-        // let block = Block::new(
-        //     qc,
-        //     self.name,
-        //     chain.height,
-        //     self.epoch,
-        //     payload,
-        //     references,
-        //     self.signature_service.clone(),
-        // ).await;
 
         if !block.payload.is_empty() {
             info!("Created {}", block);
@@ -551,7 +533,7 @@ impl Core {
         // We can not commit block whose epoch is not the current epoch.(or bigger)
         if block.author == self.leader_elector.get_leader(self.epoch) {
             if let Some((b0, b1)) = self.process_block_prepare(block).await? {
-                if !self.is_view_change && block.epoch <= self.epoch {
+                if !self.is_view_change && block.epoch <= chain.epoch {
                    self.process_block_commit(b0, b1, chain).await?; 
                 }    
             }
@@ -1053,6 +1035,9 @@ impl Core {
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
             chain.high_qc = QC::genesis();
+            chain.epoch += 1;
+            chain.height = output_height + NEXT_EPOCH_HEIGHT;
+            chain.last_committed_height = chain.height - 1;
             // clean all data structure, only base epoch
             let current_epoch = self.epoch;
             self.is_view_change = false;
@@ -1075,11 +1060,10 @@ impl Core {
             self.aux_value_nums.retain(|(k, _), _| k >= &current_epoch);
             self.aba_proof_cache.retain(|(k, _), _| k >= &current_epoch);
             // Broadcast new block.
-            let mut our_chain = self.pubkey_to_chain.get(&self.name).cloned().unwrap();
-            our_chain.height += NEXT_EPOCH_HEIGHT;
-            let block = self.generate_proposal(&our_chain, true).await;
-            self.broadcast_propose(block, &mut our_chain).await?;
-            self.pubkey_to_chain.insert(self.name, our_chain);
+            if chain.name == self.name {
+                let block = self.generate_proposal(&chain, true).await;
+                self.broadcast_propose(block, chain).await?; 
+            }
         } else {
             self.process_aba_phase().await?;
         }

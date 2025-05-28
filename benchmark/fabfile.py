@@ -12,8 +12,8 @@ from aws.remote import Bench, BenchError
 def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
-        'nodes': 4,
-        'rate': 40000,
+        'nodes': 10,
+        'rate': 70000,
         'tx_size': 512,
         'faults': 0,
         'duration': 10,
