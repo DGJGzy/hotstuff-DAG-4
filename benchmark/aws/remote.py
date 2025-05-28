@@ -207,6 +207,7 @@ class Bench:
         addresses = [f'{x}:{self.settings.front_port}' for x in hosts]
         rate_share = ceil(rate / committee.size())  # Take faults into account.
         timeout = node_parameters.timeout_delay
+        node_sync = node_parameters.node_sync_dealy
         client_logs = [PathMaker.client_log_file(i) for i in range(len(hosts))]
         for host, addr, log_file in zip(hosts, addresses, client_logs):
             cmd = CommandMaker.run_client(
@@ -214,6 +215,7 @@ class Bench:
                 bench_parameters.tx_size,
                 rate_share,
                 timeout,
+                node_sync,
                 nodes=addresses
             )
             self._background_run(host, cmd, log_file)

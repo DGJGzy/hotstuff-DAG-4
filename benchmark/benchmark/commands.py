@@ -36,7 +36,7 @@ class CommandMaker:
                 f'--store {store} --parameters {parameters}')
 
     @staticmethod
-    def run_client(address, size, rate, timeout,sync_time ,nodes=[]):
+    def run_client(address, size, rate, timeout, sync_time, nodes=[]):
         assert isinstance(address, str)
         assert isinstance(size, int) and size > 0
         assert isinstance(rate, int) and rate >= 0
