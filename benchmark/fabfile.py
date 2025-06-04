@@ -13,7 +13,7 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 10,
-        'rate': 70000,
+        'rate': 80000,
         'tx_size': 512,
         'faults': 0,
         'duration': 10,
@@ -26,7 +26,7 @@ def local(ctx):
             'max_payload_size': 500,
             'min_block_delay': 0,
             'network_delay': 10, # message delay on the leaders' proposals during DDoS, valid when ddos is True
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0 # multiplicative factor for exponential fallback
@@ -47,7 +47,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=1): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=2): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -104,11 +104,11 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [4],
-        'rate': [35_000, 40_000],
-        'tx_size': 16,
+        'nodes': [10],
+        'rate': [90000, 100000],
+        'tx_size': 512,
         'faults': 0, 
-        'duration': 300,
+        'duration': 60,
         'runs': 1,
     }
     node_params = {
@@ -116,8 +116,8 @@ def remote(ctx):
             'node_sync_delay': 10,
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 1_000,
-            'min_block_delay': 100,
+            'max_payload_size': 1_000, # size of payloads in block
+            'min_block_delay': 100, # minimum delay between payloads
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
             'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
@@ -127,8 +127,8 @@ def remote(ctx):
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 15_625,
-            'min_block_delay': 100
+            'max_payload_size': 512_000, # payload size
+            'min_block_delay': 100 # minimum delay between tx
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }

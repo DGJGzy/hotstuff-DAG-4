@@ -15,9 +15,10 @@
         "branch": "main"
     },
     "instances": {
-        "type": "m5d.xlarge",
+        "type": "m5d.2xlarge",
         "regions": [
             "us-east-1",
+            "us-west-1",
             "ap-southeast-2",
             "eu-north-1",
             "ap-northeast-1"
