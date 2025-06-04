@@ -638,10 +638,11 @@ impl Core {
         if self.is_view_change {
             return Ok(());
         }
-        let current_round = chain.height;
+
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
-            if current_round + LAMBDA_VAL < other_chain.height {
+            if other_chain.last_committed_height + LAMBDA_VAL < other_chain.height {
+                info!("chain {}: last commit height: {}, height: {}", other_chain.name, other_chain.last_committed_height, other_chain.height);
                 self.is_view_change = true;
                 self.local_timeout_round(chain).await?;
                 break;
