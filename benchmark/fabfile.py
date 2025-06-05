@@ -47,7 +47,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=2): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=1): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -104,9 +104,9 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [10],
-        'rate': [90000, 100000],
-        'tx_size': 512,
+        'nodes': [4],
+        'rate': [20000],
+        'tx_size': 256,
         'faults': 0, 
         'duration': 60,
         'runs': 1,
@@ -127,7 +127,7 @@ def remote(ctx):
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 512_000, # payload size
+            'max_payload_size': 256_000, # payload size
             'min_block_delay': 100 # minimum delay between tx
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA

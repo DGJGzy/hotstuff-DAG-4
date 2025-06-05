@@ -12,12 +12,11 @@
     "repo": {
         "name": "hotstuff-DAG-4",
         "url": "https://github.com/DGJGzy/hotstuff-DAG-4.git",
-        "branch": "main"
+        "branch": "test1"
     },
     "instances": {
         "type": "m5d.2xlarge",
         "regions": [
-            "us-east-1",
             "us-west-1",
             "ap-southeast-2",
             "eu-north-1",
