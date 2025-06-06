@@ -57,6 +57,7 @@ pub struct Chain {
     height: SeqNumber,
     last_voted_height: SeqNumber,
     last_committed_height: SeqNumber,
+    last_pending_height: SeqNumber,
     aggregator: Aggregator,
     high_qc: QC,
     height_to_digest: HashMap<SeqNumber, Digest>,
@@ -70,6 +71,7 @@ impl Chain {
             height: 1,
             last_voted_height: 0,
             last_committed_height: 0,
+            last_pending_height: 0,
             aggregator: Aggregator::new(committee),
             high_qc: QC::genesis(),
             height_to_digest: HashMap::new(),
@@ -240,8 +242,8 @@ impl Core {
             }
             let mut current_block = self.synchronizer.get_block(self.name, current_digest, None).await?.unwrap();
             if current_block.author == self.leader_elector.get_leader(self.epoch) {
-                current_block.references.sort_by_key(|(pk, _)| *pk); // maybe no need.
-                for (_, digest) in &current_block.references {
+                current_block.references.sort_by_key(|(pk, _, _)| *pk); // maybe no need.
+                for (_, digest, _) in &current_block.references {
                     match self.synchronizer.get_block(self.name, digest, None).await? {
                         Some(block) => {
                             let mut target = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
@@ -294,6 +296,19 @@ impl Core {
         chain.height_to_digest.insert(qc.height, qc.hash.clone());
         if qc.height > chain.high_qc.height {
             chain.high_qc = qc.clone();
+        }
+    }
+
+    fn update_last_pending_height(&mut self, block: &Block, chain: &mut Chain) {
+        if block.height > chain.last_pending_height {
+            chain.last_pending_height = block.height;
+        }
+        for (name, _, height) in &block.references {
+            if let Some(target) = self.pubkey_to_chain.get_mut(name) {
+                if *height > target.last_pending_height {
+                    target.last_pending_height = *height;
+                }
+            }
         }
     }
 
@@ -394,7 +409,7 @@ impl Core {
 
     #[async_recursion]
     async fn generate_proposal(&mut self, chain: &Chain, tag: bool) -> Block {
-        let references: Vec<(PublicKey, Digest)> = self
+        let references: Vec<(PublicKey, Digest, SeqNumber)> = self
             .committee
             .authorities
             .keys()
@@ -404,7 +419,7 @@ impl Core {
                 if chain.high_qc == QC::genesis() {
                     return None;
                 }
-                Some((*name, chain.high_qc.hash.clone()))
+                Some((*name, chain.high_qc.hash.clone(), chain.high_qc.height))
             })
             .collect();
         let qc = if tag {
@@ -515,6 +530,7 @@ impl Core {
         // Note that we commit blocks only if we have all its ancestors.
         let leader = self.leader_elector.get_leader(self.epoch);
         if leader == b0.author && b0.height + 1 == b1.height {
+            self.update_last_pending_height(&b0, chain);
             self.commit(b0, chain).await?;
         }    
         Ok(())
@@ -641,8 +657,8 @@ impl Core {
 
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
-            if other_chain.name != chain.name && other_chain.last_committed_height + LAMBDA_VAL < other_chain.height {
-                info!("chain {}: last commit height: {}, height: {}", other_chain.name, other_chain.last_committed_height, other_chain.height);
+            if other_chain.name != chain.name && other_chain.last_pending_height + LAMBDA_VAL < other_chain.height {
+                info!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
                 self.is_view_change = true;
                 self.local_timeout_round(chain).await?;
                 break;
@@ -1035,10 +1051,11 @@ impl Core {
             // reset previous leader chain
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
-            chain.high_qc = QC::genesis();
+            // chain.high_qc = QC::genesis();
             chain.epoch += 1;
             chain.height = output_height + NEXT_EPOCH_HEIGHT;
             chain.last_committed_height = chain.height - 1;
+            chain.last_pending_height = chain.height - 1;
             // clean all data structure, only base epoch
             let current_epoch = self.epoch;
             self.is_view_change = false;

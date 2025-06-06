@@ -22,7 +22,7 @@ pub struct Block {
     pub height: SeqNumber,
     pub epoch: SeqNumber,
     pub payload: Vec<Digest>,
-    pub references: Vec<(PublicKey, Digest)>,
+    pub references: Vec<(PublicKey, Digest, SeqNumber)>,
     pub signature: Signature,
 }
 
@@ -33,7 +33,7 @@ impl Block {
         height: SeqNumber,
         epoch: SeqNumber,
         payload: Vec<Digest>,
-        references: Vec<(PublicKey, Digest)>,
+        references: Vec<(PublicKey, Digest, SeqNumber)>,
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
