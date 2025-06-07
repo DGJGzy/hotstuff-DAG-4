@@ -1044,7 +1044,9 @@ impl Core {
                 return Ok(());
             }
             // commit block 
-            self.commit(block.unwrap(), chain).await?;
+            let to_commit_block = block.unwrap();
+            self.update_last_pending_height(&to_commit_block, chain);
+            self.commit(to_commit_block, chain).await?;
             // advance epoch
             self.epoch += 1;
             info!("advance epoch, epoch: {}", self.epoch);
