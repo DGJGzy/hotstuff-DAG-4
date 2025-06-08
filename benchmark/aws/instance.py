@@ -144,14 +144,25 @@ class InstanceManager:
         )
 
     def _get_ami(self, client):
+        # 快速检查当前区域有哪些 Ubuntu AMI 可用
+        # response = client.describe_images(
+        #     Filters=[
+        #         {'Name': 'description', 'Values': ['*Ubuntu*']},
+        #         {'Name': 'state', 'Values': ['available']}
+        #     ],
+        #     Owners=['099720109477'],
+        # )
+        # for img in response['Images']:
+        #     print(f"ID: {img['ImageId']}, Description: {img.get('Description', '')}")
+        
         # The AMI changes with regions.
         response = client.describe_images(
             Filters=[{
                 'Name': 'description',
-                'Values': ['Canonical, Ubuntu, 20.04 LTS, amd64 focal image *']
+                'Values': ['Canonical, Ubuntu, 20.04, amd64 focal image']
             }]
         )
-        # print(response)
+        print(response)
         return response['Images'][0]['ImageId']
 
     def create_instances(self, instances):

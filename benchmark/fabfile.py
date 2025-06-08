@@ -105,11 +105,11 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [4],
-        'rate': [40000],
+        'rate': [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000],
         'tx_size': 256,
         'faults': 0, 
-        'duration': 60,
-        'runs': 1,
+        'duration': 30,
+        'runs': 2,
     }
     node_params = {
         'consensus': {
@@ -117,7 +117,7 @@ def remote(ctx):
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 1_000, # size of payloads in block
-            'min_block_delay': 100, # minimum delay between payloads
+            'min_block_delay': 50, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
             'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
@@ -128,7 +128,7 @@ def remote(ctx):
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 256_000, # payload size
-            'min_block_delay': 100 # minimum delay between tx
+            'min_block_delay': 50 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
