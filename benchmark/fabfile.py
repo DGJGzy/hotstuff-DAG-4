@@ -47,7 +47,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=1): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=4): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -105,7 +105,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [4],
-        'rate': [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000],
+        'rate': [20000, 70000, 100000, 130000, 160000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 30,

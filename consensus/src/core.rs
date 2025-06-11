@@ -197,12 +197,12 @@ impl Core {
     async fn make_vote(&mut self, block: &Block, chain: &mut Chain) -> Option<Vote> {
         // We can not vote for a block whose epoch smaller.
         if chain.epoch > block.epoch {
-            info!("FailVote 1, chain.epoch: {}, block.epoch: {}", chain.epoch, block.epoch);
+            debug!("FailVote 1, chain.epoch: {}, block.epoch: {}", chain.epoch, block.epoch);
             return None;
         }
         // If we are changing view, we can not vote for current leader chain blocks.
         if self.is_view_change && block.author == self.leader_elector.get_leader(self.epoch) {
-            info!("FailVote 2, view-change: {}, block.author: {}, leader: {}", 
+            debug!("FailVote 2, view-change: {}, block.author: {}, leader: {}", 
                 self.is_view_change, block.author, self.leader_elector.get_leader(self.epoch));
             return None;
         }
@@ -213,9 +213,9 @@ impl Core {
 
         if !(safety_rule_1 && safety_rule_2) {
             if !safety_rule_1 {
-                info!("FailVote 3, block.height: {}, chain.last_voted_height: {}", block.height, chain.last_voted_height);
+                debug!("FailVote 3, block.height: {}, chain.last_voted_height: {}", block.height, chain.last_voted_height);
             } else {
-                info!("FailVote 4, block.qc: {:?}, block.height: {}", block.qc, block.height);
+                debug!("FailVote 4, block.qc: {:?}, block.height: {}", block.qc, block.height);
             } 
             return None;
         }
@@ -583,7 +583,7 @@ impl Core {
         // Let's see if we have the block's data. If we don't, the mempool
         // will get it and then make us resume processing this block.
         if !self.mempool_driver.verify(block.clone()).await? {
-            info!("Processing of {} suspended: missing payload", digest);
+            debug!("Processing of {} suspended: missing payload", digest);
             return Ok(());
         }
 
@@ -658,7 +658,7 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + LAMBDA_VAL < other_chain.height {
-                info!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
+                debug!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
                 self.is_view_change = true;
                 self.local_timeout_round(chain).await?;
                 break;
@@ -995,12 +995,12 @@ impl Core {
             return Ok(());
         }
         if self.phase == INIT_PHASE && self.tc_processed {
-            info!("Epoch {}, enter VAL_PHASE", self.epoch);
+            debug!("Epoch {}, enter VAL_PHASE", self.epoch);
             self.phase = VAL_PHASE;
         }
 
         if self.phase == VAL_PHASE && !self.bin_values.is_empty() {
-            info!("Epoch {}, enter AUX_PHASE", self.epoch);
+            debug!("Epoch {}, enter AUX_PHASE", self.epoch);
             self.phase = AUX_PHASE;
         }
 
@@ -1012,7 +1012,7 @@ impl Core {
             && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
                 .contains_key(&(self.epoch, self.aba_round)))
         {
-            info!("Epoch {}, enter COIN_PHASE", self.epoch);
+            debug!("Epoch {}, enter COIN_PHASE", self.epoch);
             self.phase = COIN_PHASE;
         }
 
@@ -1025,7 +1025,7 @@ impl Core {
         // }
 
         if self.aba_output_val.is_some() {
-            info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
+            debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
             debug!("output_height: {}", output_height);
@@ -1040,7 +1040,7 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                info!("No such block!");
+                debug!("No such block!");
                 return Ok(());
             }
             // commit block 
@@ -1049,7 +1049,7 @@ impl Core {
             self.commit(to_commit_block, chain).await?;
             // advance epoch
             self.epoch += 1;
-            info!("advance epoch, epoch: {}", self.epoch);
+            debug!("advance epoch, epoch: {}", self.epoch);
             // reset previous leader chain
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);
@@ -1100,38 +1100,38 @@ impl Core {
         
         loop {
             self.total_epoch += 1;
-            info!("Epoch {}, leader: {}", self.total_epoch, self.leader_elector.get_leader(self.epoch));
+            debug!("Epoch {}, leader: {}", self.total_epoch, self.leader_elector.get_leader(self.epoch));
             let result = tokio::select! {
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         ConsensusMessage::Propose(block) => {
-                            info!("receive propose from {}, height {}", block.author, block.height);
+                            debug!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
-                            info!("receive vote from {}", vote.author);
+                            debug!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
                             let result = self.handle_vote(&vote, &mut chain).await;
                             self.pubkey_to_chain.insert(vote.proposer, chain);
                             result
                         },
                         ConsensusMessage::LoopBack(block) => {
-                            info!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
+                            debug!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.process_block(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },                        
                         ConsensusMessage::SyncRequest(digest, sender) => {
-                            info!("receive sync request {} from {}", digest, sender);
+                            debug!("receive sync request {} from {}", digest, sender);
                             let result = self.handle_sync_request(digest, sender).await;
                             result
                         },
                         ConsensusMessage::SyncReply(block) => {
-                            info!("receive sync reply from {}", block.author);
+                            debug!("receive sync reply from {}", block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
@@ -1143,7 +1143,7 @@ impl Core {
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            info!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
+                            debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
@@ -1151,22 +1151,22 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            info!("receive tc, epoch {}", tc.epoch);
+                            debug!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            info!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
+                            debug!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            info!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
+                            debug!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            info!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
+                            debug!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
                             let result = self.handle_coin_share(share).await;
                             result
                         },
