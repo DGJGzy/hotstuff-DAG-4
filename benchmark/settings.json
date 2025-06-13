@@ -1,6 +1,6 @@
 {
     "key": {
-        "name": "DGJG",
+        "name": "DGJG1",
         "path": "/Users/dgjg/.ssh/aws"
     },
     "ports": {
@@ -12,16 +12,15 @@
     "repo": {
         "name": "hotstuff-DAG-4",
         "url": "https://github.com/DGJGzy/hotstuff-DAG-4.git",
-        "branch": "test1"
+        "branch": "lambda"
     },
     "instances": {
-        "type": "m5d.2xlarge",
+        "type": "m5d.xlarge",
         "regions": [
             "us-east-1",
             "us-west-1",
             "ap-southeast-2",
-            "eu-north-1",
-            "ap-northeast-1"
+            "eu-north-1"
         ]
     }
 }

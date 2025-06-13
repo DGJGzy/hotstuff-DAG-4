@@ -7,6 +7,7 @@ from os.path import basename, splitext
 from time import sleep
 from math import ceil
 from os.path import join
+from datetime import datetime
 import subprocess
 
 from benchmark.config import Committee, Key, TSSKey, NodeParameters, BenchParameters, ConfigError
@@ -14,7 +15,6 @@ from benchmark.utils import BenchError, Print, PathMaker, progress_bar
 from benchmark.commands import CommandMaker
 from benchmark.logs import LogParser, ParseError
 from aws.instance import InstanceManager
-
 
 class FabricError(Exception):
     ''' Wrapper for Fabric exception with a meaningfull error message. '''
@@ -191,7 +191,7 @@ class Bench:
 
         return committee
 
-    def _run_single(self, hosts, rate, bench_parameters, node_parameters, debug=False):
+    def _run_single(self, hosts, rate, bench_parameters, node_parameters, ts, debug=False):
         Print.info('Booting testbed...')
 
         # Kill any potentially unfinished run and delete logs.
@@ -208,7 +208,7 @@ class Bench:
         rate_share = ceil(rate / committee.size())  # Take faults into account.
         timeout = node_parameters.timeout_delay
         node_sync = node_parameters.node_sync_dealy
-        client_logs = [PathMaker.client_log_file(i) for i in range(len(hosts))]
+        client_logs = [PathMaker.client_log_file(i, ts) for i in range(len(hosts))]
         for host, addr, log_file in zip(hosts, addresses, client_logs):
             cmd = CommandMaker.run_client(
                 addr,
@@ -246,26 +246,26 @@ class Bench:
         # Wait for all transactions to be processed.
         duration = bench_parameters.duration
         for _ in progress_bar(range(100), prefix=f'Running benchmark ({duration} sec):'):
-            sleep(ceil(duration / 100))
+            sleep(duration / 100)
         self.kill(hosts=hosts, delete_logs=False)
 
-    def _logs(self, hosts, faults, protocol, ddos):
+    def _logs(self, hosts, faults, protocol, ddos, ts):
         # Delete local logs (if any).
-        cmd = CommandMaker.clean_logs()
-        subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
+        # cmd = CommandMaker.clean_logs()
+        # subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
         # Download log files.
         progress = progress_bar(hosts, prefix='Downloading logs:')
         for i, host in enumerate(progress):
             c = Connection(host, user='ubuntu', connect_kwargs=self.connect)
-            c.get(PathMaker.node_log_file(i), local=PathMaker.node_log_file(i))
+            c.get(PathMaker.node_log_file(i, ts), local=PathMaker.node_log_file(i, ts))
             c.get(
-                PathMaker.client_log_file(i), local=PathMaker.client_log_file(i)
+                PathMaker.client_log_file(i, ts), local=PathMaker.client_log_file(i, ts)
             )
 
         # Parse logs and return the parser.
         Print.info('Parsing logs and computing performance...')
-        return LogParser.process(PathMaker.logs_path(), faults=faults, protocol=protocol, ddos=ddos)
+        return LogParser.process(PathMaker.logs_path(ts), faults=faults, protocol=protocol, ddos=ddos)
 
     def run(self, bench_parameters_dict, node_parameters_dict, debug=False):
         assert isinstance(debug, bool)
@@ -332,15 +332,16 @@ class Bench:
                 protocol = node_parameters.protocol
                 ddos = node_parameters.ddos
 
+                ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')
                     try:
                         self._run_single(
-                            hosts, r, bench_parameters, node_parameters, debug
+                            hosts, r, bench_parameters, node_parameters, ts, debug
                         )
-                        self._logs(hosts, faults, protocol, ddos).print(PathMaker.result_file(
-                            n, r, bench_parameters.tx_size, faults
+                        self._logs(hosts, faults, protocol, ddos, ts).print(PathMaker.result_file(
+                            n, r, bench_parameters.tx_size, faults, ts
                         ))
                     except (subprocess.SubprocessError, GroupException, ParseError) as e:
                         self.kill(hosts=hosts)

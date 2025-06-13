@@ -1,3 +1,4 @@
+from datetime import datetime
 import subprocess
 from math import ceil
 from os.path import basename, join, splitext
@@ -16,6 +17,7 @@ class LocalBench:
         try:
             self.bench_parameters = BenchParameters(bench_parameters_dict)
             self.node_parameters = NodeParameters(node_parameters_dict)
+            self.ts = datetime.now().strftime("%Y-%m-%dv%H-%M-%S")
         except ConfigError as e:
             raise BenchError('Invalid nodes or bench parameters', e)
 
@@ -46,10 +48,14 @@ class LocalBench:
             nodes, rate = self.nodes[0], self.rate[0]
 
             # Cleanup all files.
-            cmd = f'{CommandMaker.clean_logs()} ; {CommandMaker.cleanup()}'
+            cmd = f'{CommandMaker.cleanup()}'
             subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
             sleep(0.5) # Removing the store may take time.
-
+            
+            # Make dir
+            cmd = CommandMaker.make_logs_and_result_dir(self.ts)
+            subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
+            
             # Recompile the latest code.
             cmd = CommandMaker.compile().split()
             subprocess.run(cmd, check=True, cwd=PathMaker.node_crate_path())
@@ -92,7 +98,7 @@ class LocalBench:
             rate_share = ceil(rate / nodes)
             timeout = self.node_parameters.timeout_delay
             node_sync = self.node_parameters.node_sync_dealy
-            client_logs = [PathMaker.client_log_file(i) for i in range(nodes)]
+            client_logs = [PathMaker.client_log_file(i, self.ts) for i in range(nodes)]
             for addr, log_file in zip(addresses, client_logs):
                 cmd = CommandMaker.run_client(
                     addr,
@@ -119,7 +125,7 @@ class LocalBench:
 
             # Run the nodes.
             dbs = [PathMaker.db_path(i) for i in range(nodes)]
-            node_logs = [PathMaker.node_log_file(i) for i in range(nodes)]
+            node_logs = [PathMaker.node_log_file(i, self.ts) for i in range(nodes)]
             threshold_key_files = [PathMaker.threshold_key_file(i) for i in range(nodes)]
             for key_file, threshold_key_file, db, log_file in zip(key_files, threshold_key_files, dbs, node_logs):
                 cmd = CommandMaker.run_node(
@@ -143,7 +149,17 @@ class LocalBench:
 
             # Parse logs and return the parser.
             Print.info('Parsing logs...')
-            return LogParser.process('./logs', self.faults, self.node_parameters.protocol, self.node_parameters.ddos)
+            log_parser = LogParser.process(
+                PathMaker.logs_path(self.ts), 
+                self.faults, 
+                self.node_parameters.protocol, 
+                self.node_parameters.ddos
+            )
+            output_file = PathMaker.result_file(
+                nodes, rate, self.tx_size, self.faults, self.ts
+            )
+            log_parser.print(output_file)
+            return log_parser
 
         except (subprocess.SubprocessError, ParseError) as e:
             self._kill_nodes()
