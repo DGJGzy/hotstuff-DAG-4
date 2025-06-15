@@ -124,7 +124,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 15,
+            'lambda': 10,
         },
         'mempool': {
             'queue_capacity': 100_000,

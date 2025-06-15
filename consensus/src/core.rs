@@ -997,12 +997,12 @@ impl Core {
             return Ok(());
         }
         if self.phase == INIT_PHASE && self.tc_processed {
-            debug!("Epoch {}, enter VAL_PHASE", self.epoch);
+            info!("Epoch {}, enter VAL_PHASE", self.epoch);
             self.phase = VAL_PHASE;
         }
 
         if self.phase == VAL_PHASE && !self.bin_values.is_empty() {
-            debug!("Epoch {}, enter AUX_PHASE", self.epoch);
+            info!("Epoch {}, enter AUX_PHASE", self.epoch);
             self.phase = AUX_PHASE;
         }
 
@@ -1014,7 +1014,7 @@ impl Core {
             && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
                 .contains_key(&(self.epoch, self.aba_round)))
         {
-            debug!("Epoch {}, enter COIN_PHASE", self.epoch);
+            info!("Epoch {}, enter COIN_PHASE", self.epoch);
             self.phase = COIN_PHASE;
         }
 
