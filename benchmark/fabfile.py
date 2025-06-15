@@ -106,7 +106,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [7],
-        'rate': [140000, 180000, 20000, 60000, 100000],
+        'rate': [20000, 40000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -120,11 +120,11 @@ def remote(ctx):
             'max_payload_size': 1_000, # size of payloads in block
             'min_block_delay': 25, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 7,
+            'lambda': 15,
         },
         'mempool': {
             'queue_capacity': 100_000,

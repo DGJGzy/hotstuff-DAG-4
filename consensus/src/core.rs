@@ -622,6 +622,7 @@ impl Core {
         // }
         // High qc is aba input.
         let input_val = *tc.high_qc_rounds().iter().max().unwrap();
+        info!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
         // Broadcast the input.
         let aba_val = ABAVal::new(
