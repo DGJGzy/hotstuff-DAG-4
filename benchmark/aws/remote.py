@@ -85,11 +85,11 @@ class Bench:
         assert isinstance(hosts, list)
         assert isinstance(delete_logs, bool)
         hosts = hosts if hosts else self.manager.hosts(flat=True)
-        delete_logs = CommandMaker.clean_logs() if delete_logs else 'true'
-        cmd = [delete_logs, f'({CommandMaker.kill()} || true)']
+        # delete_logs = CommandMaker.clean_logs() if delete_logs else 'true'
+        cmd = f'({CommandMaker.kill()} || true)'
         try:
             g = Group(*hosts, user='ubuntu', connect_kwargs=self.connect)
-            g.run(' && '.join(cmd), hide=True)
+            g.run(cmd, hide=True)
         except GroupException as e:
             raise BenchError('Failed to kill nodes', FabricError(e))
 
@@ -200,6 +200,11 @@ class Bench:
         Print.info('Killed previous instances')
         sleep(10)
 
+        # Make dir
+        cmd = f'{CommandMaker.make_logs_and_result_dir(ts)}'
+        g = Group(*hosts, user='ubuntu', connect_kwargs=self.connect)
+        g.run(cmd, hide=True)
+        
         # Run the clients (they will wait for the nodes to be ready).
         # Filter all faulty nodes from the client addresses (or they will wait
         # for the faulty nodes to be online).
@@ -226,7 +231,7 @@ class Bench:
         # Run the nodes.
         key_files = [PathMaker.key_file(i) for i in range(len(hosts))]
         dbs = [PathMaker.db_path(i) for i in range(len(hosts))]
-        node_logs = [PathMaker.node_log_file(i) for i in range(len(hosts))]
+        node_logs = [PathMaker.node_log_file(i, ts) for i in range(len(hosts))]
         threshold_key_files = [PathMaker.threshold_key_file(i) for i in range(len(hosts))]
         for host, key_file, threshold_key_file, db, log_file in zip(hosts, key_files, threshold_key_files, dbs, node_logs):
             cmd = CommandMaker.run_node(
@@ -316,7 +321,7 @@ class Bench:
             for r in bench_parameters.rate:
                 Print.heading(f'\nRunning {n} nodes (input rate: {r:,} tx/s)')
                 hosts = selected_hosts[:n]
-
+                print(hosts)
                 # # Upload all configuration files.
                 # try:
                 #     self._config(hosts, node_parameters)
@@ -333,6 +338,9 @@ class Bench:
                 ddos = node_parameters.ddos
 
                 ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+                # Make dir
+                cmd = CommandMaker.make_logs_and_result_dir(ts)
+                subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
                 # Run the benchmark.
                 for i in range(bench_parameters.runs):
                     Print.heading(f'Run {i+1}/{bench_parameters.runs}')

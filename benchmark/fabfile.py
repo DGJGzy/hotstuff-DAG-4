@@ -48,7 +48,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=1): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=2): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -105,8 +105,8 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [4],
-        'rate': [160000, 20000],
+        'nodes': [7],
+        'rate': [140000, 180000, 20000, 60000, 100000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -124,7 +124,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 5,
+            'lambda': 7,
         },
         'mempool': {
             'queue_capacity': 100_000,

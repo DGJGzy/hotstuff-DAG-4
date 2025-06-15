@@ -437,6 +437,7 @@ impl Core {
             self.name,
             chain.height,
             chain.epoch,
+            self.epoch,
             payload,
             references,
             self.signature_service.clone(),

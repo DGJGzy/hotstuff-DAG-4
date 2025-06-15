@@ -162,7 +162,7 @@ class InstanceManager:
                 'Values': ['Canonical, Ubuntu, 20.04, amd64 focal image']
             }]
         )
-        print(response)
+        # print(response)
         return response['Images'][0]['ImageId']
 
     def create_instances(self, instances):

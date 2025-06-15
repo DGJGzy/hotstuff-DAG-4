@@ -56,7 +56,7 @@ impl Filter {
                 && rand::thread_rng().gen_bool((parameters.random_ddos_chance as f64) / 100.0)
             {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
-            } else if parameters.ddos && block.author != leader_elector.get_leader(0) {
+            } else if parameters.ddos && block.author == leader_elector.get_leader(block.total_epoch) {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             }
         }
