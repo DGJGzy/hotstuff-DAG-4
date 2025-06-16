@@ -1153,22 +1153,22 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            debug!("receive tc, epoch {}", tc.epoch);
+                            info!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            debug!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
+                            info!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            debug!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
+                            info!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            debug!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
+                            info!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
                             let result = self.handle_coin_share(share).await;
                             result
                         },
