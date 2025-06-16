@@ -272,6 +272,7 @@ impl Core {
 
         // Send all the newly committed blocks to the node's application layer.
         while let Some(block) = to_commit.pop_back() {
+            info!("Committed {:?}", block);
             if !block.payload.is_empty() {
                 info!("Committed {}", block);
 
@@ -660,6 +661,10 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
+                info!("aba start, epoch {}", self.epoch);
+                for (_, info_chain) in self.pubkey_to_chain.clone() {
+                    info!("chain name {}, height {}", info_chain.name, info_chain.height);
+                }
                 debug!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
                 self.is_view_change = true;
                 self.local_timeout_round(chain).await?;
@@ -1054,6 +1059,7 @@ impl Core {
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
+            info!("aba end, epoch {}", self.epoch);
             // advance epoch
             self.epoch += 1;
             debug!("advance epoch, epoch: {}", self.epoch);
@@ -1107,7 +1113,7 @@ impl Core {
             None
         ).await?;
         if next_block.is_none() {
-            debug!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
+            info!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
             return Ok(());
         }
         let to_commit_block = next_block.unwrap();
