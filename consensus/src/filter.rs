@@ -49,23 +49,14 @@ impl Filter {
 
     async fn delay(input: FilterInput, parameters: Parameters, leader_elector: &LeaderElector) -> FilterInput {
         let (message, _) = &input;
-        if let ConsensusMessage::Propose(_) = message {
+        if let ConsensusMessage::Propose(block) = message {
             // NOTE: Increase the delay here (you can use any value from the 'parameters').
             // Only add network delay for non-fallback block proposals
             if parameters.random_ddos
                 && rand::thread_rng().gen_bool((parameters.random_ddos_chance as f64) / 100.0)
             {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
-            } 
-        }
-        if let ConsensusMessage::Vote(vote) = message {
-            // NOTE: Increase the delay here (you can use any value from the 'parameters').
-            // Only add network delay for non-fallback block proposals
-            if parameters.random_ddos
-                && rand::thread_rng().gen_bool((parameters.random_ddos_chance as f64) / 100.0)
-            {
-                sleep(Duration::from_millis(parameters.network_delay)).await;
-            } else if parameters.ddos && vote.proposer == leader_elector.get_leader(vote.total_epoch) {
+            } else if parameters.ddos && block.author == leader_elector.get_leader(block.total_epoch) {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             }
         }
