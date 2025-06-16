@@ -124,6 +124,7 @@ impl fmt::Display for Block {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vote {
     pub hash: Digest,
+    pub total_epoch: SeqNumber,
     pub epoch: SeqNumber,
     pub height: SeqNumber,
     pub author: PublicKey, // vote author
@@ -139,6 +140,7 @@ impl Vote {
     ) -> Self {
         let vote = Self {
             hash: block.digest(),
+            total_epoch: block.total_epoch,
             epoch: block.epoch,
             height: block.height,
             author,

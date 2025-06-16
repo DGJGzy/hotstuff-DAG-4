@@ -1047,7 +1047,7 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                debug!("No such block!");
+                debug!("No such block, chain {}, height {}", chain.name, output_height);
                 return Ok(());
             }
             // commit block 
@@ -1095,6 +1095,23 @@ impl Core {
             self.process_aba_phase().await?;
         }
 
+        Ok(())
+    }
+
+    pub async fn commit_next_chain(&mut self, next_chain: &mut Chain) -> ConsensusResult<()> {
+        // Commit next chain.
+        let next_digest = next_chain.height_to_digest.get(&next_chain.height).unwrap();     
+        let next_block= self.synchronizer.get_block(
+            self.name, 
+            next_digest,
+            None
+        ).await?;
+        if next_block.is_none() {
+            debug!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
+            return Ok(());
+        }
+        let to_commit_block = next_block.unwrap();
+        self.process_block(&to_commit_block, next_chain).await?;
         Ok(())
     }
 
@@ -1163,12 +1180,14 @@ impl Core {
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            info!("receive aba_val from {}, epoch {}, round {}, phase {}", aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase);
+                            info!("receive aba_val from {}, epoch {}, round {}, phase {}, val {}", 
+                                aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase, aba_val.val);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            info!("receive aba_proof, epoch {}, round {}", proof.epoch, proof.round);
+                            info!("receive aba_proof, epoch {}, round {}, val {}",
+                                proof.epoch, proof.round, proof.val);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
@@ -1190,8 +1209,15 @@ impl Core {
 
             let leader = self.leader_elector.get_leader(self.epoch);
             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
+            let next_leader = self.leader_elector.get_leader(self.epoch + 1);
             let _ = self.update_aba_phase(&mut chain).await;
             self.pubkey_to_chain.insert(leader, chain);
+            
+            if self.leader_elector.get_leader(self.epoch) == next_leader {
+                let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
+                let _ = self.commit_next_chain(&mut next_chain);
+                self.pubkey_to_chain.insert(next_leader, next_chain);
+            }
             
             let leader = self.leader_elector.get_leader(self.epoch);
             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
