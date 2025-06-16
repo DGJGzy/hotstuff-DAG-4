@@ -970,8 +970,13 @@ impl Core {
         }
 
         if self.phase >= AUX_PHASE {
-            if let Some(proof) = self.aba_aux_phase_cache.get(&(self.epoch, self.aba_round)) {
-                self.process_aux_phase(proof.epoch, proof.round).await?;
+            if *self.aux_value_nums
+                .entry((self.epoch, self.aba_round))
+                .or_insert(0) >= self.committee.quorum_threshold() as u64
+            && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
+                .contains_key(&(self.epoch, self.aba_round)))
+            {
+                self.process_aux_phase(self.epoch, self.aba_round).await?;
             }
         }
 
