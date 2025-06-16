@@ -661,7 +661,7 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
-                info!("aba start, epoch {}", self.epoch);
+                info!("aba status start, epoch {}", self.epoch);
                 for (_, info_chain) in self.pubkey_to_chain.clone() {
                     info!("chain name {}, height {}", info_chain.name, info_chain.height);
                 }
@@ -1040,9 +1040,9 @@ impl Core {
             info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
-            debug!("output_height: {}", output_height);
+            info!("output_height: {}", output_height);
             if !chain.height_to_digest.contains_key(&output_height) {
-                debug!("No such height!");
+                info!("No such height!");
                 return Ok(());
             }  
             let digest = chain.height_to_digest.get(&output_height).unwrap();     
@@ -1052,14 +1052,14 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                debug!("No such block, chain {}, height {}", chain.name, output_height);
+                info!("No such block, chain {}, height {}", chain.name, output_height);
                 return Ok(());
             }
             // commit block 
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
-            info!("aba end, epoch {}", self.epoch);
+            info!("aba status end, epoch {}", self.epoch);
             // advance epoch
             self.epoch += 1;
             debug!("advance epoch, epoch: {}", self.epoch);
@@ -1135,33 +1135,33 @@ impl Core {
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         ConsensusMessage::Propose(block) => {
-                            debug!("receive propose from {}, height {}", block.author, block.height);
+                            info!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
-                            debug!("receive vote from {}", vote.author);
+                            info!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
                             let result = self.handle_vote(&vote, &mut chain).await;
                             self.pubkey_to_chain.insert(vote.proposer, chain);
                             result
                         },
                         ConsensusMessage::LoopBack(block) => {
-                            debug!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
+                            info!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.process_block(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },                        
                         ConsensusMessage::SyncRequest(digest, sender) => {
-                            debug!("receive sync request {} from {}", digest, sender);
+                            info!("receive sync request {} from {}", digest, sender);
                             let result = self.handle_sync_request(digest, sender).await;
                             result
                         },
                         ConsensusMessage::SyncReply(block) => {
-                            debug!("receive sync reply from {}", block.author);
+                            info!("receive sync reply from {}", block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
@@ -1173,7 +1173,7 @@ impl Core {
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
+                            info!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
