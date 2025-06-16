@@ -197,6 +197,7 @@ class LogParser:
         consensus_sync_retry_delay = self.configs[0]['consensus']['sync_retry_delay']
         consensus_max_payload_size = self.configs[0]['consensus']['max_payload_size']
         consensus_min_block_delay = self.configs[0]['consensus']['min_block_delay']
+        lambda_val = self.configs[0]['consensus']['lambda']
         mempool_queue_capacity = self.configs[0]['mempool']['queue_capacity']
         # mempool_sync_retry_delay = self.configs[0]['mempool']['sync_retry_delay']
         mempool_max_payload_size = self.configs[0]['mempool']['max_payload_size']
@@ -220,6 +221,7 @@ class LogParser:
             f' Consensus sync retry delay: {consensus_sync_retry_delay:,} ms\n'
             f' Consensus max payloads size: {consensus_max_payload_size:,} B\n'
             f' Consensus min block delay: {consensus_min_block_delay:,} ms\n'
+            f' Lambda: {lambda_val:,}\n'
             f' Mempool queue capacity: {mempool_queue_capacity:,} B\n'
             # f' Mempool sync retry delay: {mempool_sync_retry_delay:,} ms\n'
             f' Mempool max payloads size: {mempool_max_payload_size:,} B\n'

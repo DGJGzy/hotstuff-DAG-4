@@ -1027,7 +1027,7 @@ impl Core {
         // }
 
         if self.aba_output_val.is_some() {
-            debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
+            info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
             debug!("output_height: {}", output_height);
