@@ -1138,7 +1138,7 @@ impl Core {
                         ConsensusMessage::Propose(block) => {
                             if self.is_view_change {
                                 self.unhandled_message.push_back(message_copy);
-                                return;
+                                continue;
                             } 
                             debug!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
@@ -1153,7 +1153,7 @@ impl Core {
                         ConsensusMessage::Vote(vote) => {
                             if self.is_view_change {
                                 self.unhandled_message.push_back(message_copy);
-                                return;
+                                continue;
                             } 
                             debug!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
