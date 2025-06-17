@@ -37,7 +37,7 @@ pub const COIN_PHASE: u8 = 3;
 pub const HOTSTUFF: u8 = 0;
 pub const TCVBA: u8 = 1;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ConsensusMessage {
     Propose(Block),
     Vote(Vote),
@@ -117,6 +117,7 @@ pub struct Core {
     aux_value_nums: HashMap<(SeqNumber, SeqNumber), u64>, // the number of values in set "values"
     aba_coin_cache: HashMap<(SeqNumber, SeqNumber), usize>,
     aba_proof_cache: HashMap<(SeqNumber, SeqNumber), ABAProof>,
+    unhandled_message: VecDeque<ConsensusMessage>,
 }
 
 impl Core {
@@ -180,6 +181,7 @@ impl Core {
             aux_value_nums: HashMap::new(), // the number of values in set "values"
             aba_coin_cache: HashMap::new(),
             aba_proof_cache: HashMap::new(),
+            unhandled_message: VecDeque::new(),
         }
     }
 
@@ -623,7 +625,7 @@ impl Core {
         // }
         // High qc is aba input.
         let input_val = *tc.high_qc_rounds().iter().max().unwrap();
-        info!("input_val: {}", input_val);
+        debug!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
         // Broadcast the input.
         let aba_val = ABAVal::new(
@@ -661,9 +663,9 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
-                info!("aba status start, epoch {}", self.epoch);
+                debug!("aba status start, epoch {}", self.epoch);
                 for (_, info_chain) in self.pubkey_to_chain.clone() {
-                    info!("chain name {}, height {}", info_chain.name, info_chain.height);
+                    debug!("chain name {}, height {}", info_chain.name, info_chain.height);
                 }
                 debug!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
                 self.is_view_change = true;
@@ -1007,12 +1009,12 @@ impl Core {
             return Ok(());
         }
         if self.phase == INIT_PHASE && self.tc_processed {
-            info!("Epoch {}, enter VAL_PHASE", self.epoch);
+            debug!("Epoch {}, enter VAL_PHASE", self.epoch);
             self.phase = VAL_PHASE;
         }
 
         if self.phase == VAL_PHASE && !self.bin_values.is_empty() {
-            info!("Epoch {}, enter AUX_PHASE", self.epoch);
+            debug!("Epoch {}, enter AUX_PHASE", self.epoch);
             self.phase = AUX_PHASE;
         }
 
@@ -1024,7 +1026,7 @@ impl Core {
             && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
                 .contains_key(&(self.epoch, self.aba_round)))
         {
-            info!("Epoch {}, enter COIN_PHASE", self.epoch);
+            debug!("Epoch {}, enter COIN_PHASE", self.epoch);
             self.phase = COIN_PHASE;
         }
 
@@ -1035,14 +1037,15 @@ impl Core {
         //     debug!("Epoch {}, enter HELP_PHASE", self.epoch);
         //     self.phase = HELP_PHASE;
         // }
+        self.process_aba_phase().await?;
 
         if self.aba_output_val.is_some() {
-            info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
+            debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
-            info!("output_height: {}", output_height);
+            debug!("output_height: {}", output_height);
             if !chain.height_to_digest.contains_key(&output_height) {
-                info!("No such height!");
+                debug!("No such height!");
                 return Ok(());
             }  
             let digest = chain.height_to_digest.get(&output_height).unwrap();     
@@ -1052,14 +1055,14 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                info!("No such block, chain {}, height {}", chain.name, output_height);
+                debug!("No such block, chain {}, height {}", chain.name, output_height);
                 return Ok(());
             }
             // commit block 
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
-            info!("aba status end, epoch {}", self.epoch);
+            debug!("aba status end, epoch {}", self.epoch);
             // advance epoch
             self.epoch += 1;
             debug!("advance epoch, epoch: {}", self.epoch);
@@ -1097,10 +1100,7 @@ impl Core {
                 let block = self.generate_proposal(&chain, true).await;
                 self.broadcast_propose(block, chain).await?; 
             }
-        } else {
-            self.process_aba_phase().await?;
-        }
-
+        } 
         Ok(())
     }
 
@@ -1113,7 +1113,7 @@ impl Core {
             None
         ).await?;
         if next_block.is_none() {
-            info!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
+            debug!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
             return Ok(());
         }
         let to_commit_block = next_block.unwrap();
@@ -1133,35 +1133,48 @@ impl Core {
             debug!("Epoch {}, leader: {}", self.total_epoch, self.leader_elector.get_leader(self.epoch));
             let result = tokio::select! {
                 Some(message) = self.core_channel.recv() => {
+                    let message_copy = message.clone();
                     match message {
                         ConsensusMessage::Propose(block) => {
-                            info!("receive propose from {}, height {}", block.author, block.height);
+                            if self.is_view_change {
+                                self.unhandled_message.push_back(message_copy);
+                                return;
+                            } 
+                            debug!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
+                            let leader = self.leader_elector.get_leader(self.epoch);
+                            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
+                            let _ = self.check_timeout(&mut chain).await;            
+                            self.pubkey_to_chain.insert(leader, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
-                            info!("receive vote from {}", vote.author);
+                            if self.is_view_change {
+                                self.unhandled_message.push_back(message_copy);
+                                return;
+                            } 
+                            debug!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
                             let result = self.handle_vote(&vote, &mut chain).await;
                             self.pubkey_to_chain.insert(vote.proposer, chain);
                             result
                         },
                         ConsensusMessage::LoopBack(block) => {
-                            info!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
+                            debug!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.process_block(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },                        
                         ConsensusMessage::SyncRequest(digest, sender) => {
-                            info!("receive sync request {} from {}", digest, sender);
+                            debug!("receive sync request {} from {}", digest, sender);
                             let result = self.handle_sync_request(digest, sender).await;
                             result
                         },
                         ConsensusMessage::SyncReply(block) => {
-                            info!("receive sync reply from {}", block.author);
+                            debug!("receive sync reply from {}", block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
@@ -1171,9 +1184,9 @@ impl Core {
                     }
                 },
                 Some(message) = self.smvba_channel.recv() => {
-                    match message {
+                    let handler_result = match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            info!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
+                            debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
@@ -1181,29 +1194,41 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            info!("receive tc, epoch {}", tc.epoch);
+                            debug!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            info!("receive aba_val from {}, epoch {}, round {}, phase {}, val {}", 
+                            debug!("receive aba_val from {}, epoch {}, round {}, phase {}, val {}", 
                                 aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase, aba_val.val);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            info!("receive aba_proof, epoch {}, round {}, val {}",
+                            debug!("receive aba_proof, epoch {}, round {}, val {}",
                                 proof.epoch, proof.round, proof.val);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            info!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
+                            debug!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
                             let result = self.handle_coin_share(share).await;
                             result
                         },
                         _ => panic!("Unexpected protocol message")
+                    };
+                    let leader = self.leader_elector.get_leader(self.epoch);
+                    let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
+                    let next_leader = self.leader_elector.get_leader(self.epoch + 1);
+                    let _ = self.update_aba_phase(&mut chain).await;
+                    self.pubkey_to_chain.insert(leader, chain);
+                    
+                    if self.leader_elector.get_leader(self.epoch) == next_leader {
+                        let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
+                        let _ = self.commit_next_chain(&mut next_chain);
+                        self.pubkey_to_chain.insert(next_leader, next_chain);
                     }
+                    handler_result
                 },
             };
             match result {
@@ -1212,23 +1237,30 @@ impl Core {
                 Err(ConsensusError::SerializationError(e)) => error!("Store corrupted. {}", e),
                 Err(e) => warn!("{}", e),
             }
-
-            let leader = self.leader_elector.get_leader(self.epoch);
-            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
-            let next_leader = self.leader_elector.get_leader(self.epoch + 1);
-            let _ = self.update_aba_phase(&mut chain).await;
-            self.pubkey_to_chain.insert(leader, chain);
             
-            if self.leader_elector.get_leader(self.epoch) == next_leader {
-                let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
-                let _ = self.commit_next_chain(&mut next_chain);
-                self.pubkey_to_chain.insert(next_leader, next_chain);
+            if !self.is_view_change {
+                while let Some(message) = self.unhandled_message.pop_front() {
+                    match message {
+                        ConsensusMessage::Propose(block) => {
+                            debug!("receive propose from {}, height {}", block.author, block.height);
+                            let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
+                            let _ = self.handle_proposal(&block, &mut chain).await;
+                            self.pubkey_to_chain.insert(block.author, chain);
+                            let leader = self.leader_elector.get_leader(self.epoch);
+                            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
+                            let _ = self.check_timeout(&mut chain).await;            
+                            self.pubkey_to_chain.insert(leader, chain);
+                        },
+                        ConsensusMessage::Vote(vote) => {
+                            debug!("receive vote from {}", vote.author);
+                            let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
+                            let _ = self.handle_vote(&vote, &mut chain).await;
+                            self.pubkey_to_chain.insert(vote.proposer, chain);
+                        },  
+                        _ => ()
+                    }
+                }
             }
-            
-            let leader = self.leader_elector.get_leader(self.epoch);
-            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
-            let _ = self.check_timeout(&mut chain).await;            
-            self.pubkey_to_chain.insert(leader, chain);
         }
     }
 }

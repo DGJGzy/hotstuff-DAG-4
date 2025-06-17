@@ -30,7 +30,7 @@ def local(ctx):
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0, # multiplicative factor for exponential fallback
-            'lambda': 10,
+            'lambda': 5,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -41,7 +41,7 @@ def local(ctx):
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA, now unused
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=False).result()
+        ret = LocalBench(bench_params, node_params).run(debug=True).result()
         print(ret)
     except BenchError as e:
         Print.error(e)
