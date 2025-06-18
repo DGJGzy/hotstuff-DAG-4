@@ -1292,7 +1292,7 @@ impl Core {
                     }
                 },
                 Some(message) = self.smvba_channel.recv() => {
-                    let handler_result = match message {
+                    match message {
                         ConsensusMessage::Timeout(timeout) => {
                             debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
@@ -1324,19 +1324,7 @@ impl Core {
                             result
                         },
                         _ => panic!("Unexpected protocol message")
-                    };
-                    let leader = self.leader_elector.get_leader(self.epoch);
-                    let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
-                    let next_leader = self.leader_elector.get_leader(self.epoch + 1);
-                    let _ = self.update_aba_phase(&mut chain).await;
-                    self.pubkey_to_chain.insert(leader, chain);
-                    
-                    if self.leader_elector.get_leader(self.epoch) == next_leader {
-                        let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
-                        let _ = self.commit_next_chain(&mut next_chain);
-                        self.pubkey_to_chain.insert(next_leader, next_chain);
                     }
-                    handler_result
                 },
             };
             match result {
@@ -1344,6 +1332,17 @@ impl Core {
                 Err(ConsensusError::StoreError(e)) => error!("{}", e),
                 Err(ConsensusError::SerializationError(e)) => error!("Store corrupted. {}", e),
                 Err(e) => warn!("{}", e),
+            }
+            let leader = self.leader_elector.get_leader(self.epoch);
+            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
+            let next_leader = self.leader_elector.get_leader(self.epoch + 1);
+            let _ = self.update_aba_phase(&mut chain).await;
+            self.pubkey_to_chain.insert(leader, chain);
+            
+            if self.leader_elector.get_leader(self.epoch) == next_leader {
+                let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
+                let _ = self.commit_next_chain(&mut next_chain);
+                self.pubkey_to_chain.insert(next_leader, next_chain);
             }
         }
     }
