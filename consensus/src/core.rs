@@ -726,6 +726,7 @@ impl Core {
             if aba_proof.tag == true {
                 self.aba_val_phase_cache1.insert((aba_proof.epoch, aba_proof.round), aba_proof);
             } else {
+                debug!("Current epoch: {}, round: {}", self.epoch, self.aba_round);
                 self.aba_val_phase_cache2.insert((aba_proof.epoch, aba_proof.round), aba_proof);
             } 
         }
@@ -1037,6 +1038,8 @@ impl Core {
                 let first_odd: Option<&u64> = self.aba_prepare_set.iter().find(|&&seq| seq % 2 == 1);
                 if let Some(val) = first_odd {
                     self.aba_input_val.insert(1, *val);
+                } else {
+                    self.aba_input_val.insert(1, self.aba_prepare_set[0]);
                 }
                 let input_val = *self.aba_input_val.get(&1).unwrap();
                 let aba_val = ABAVal::new(
