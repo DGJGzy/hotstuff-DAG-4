@@ -1255,6 +1255,10 @@ impl Core {
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
+                            let leader = self.leader_elector.get_leader(self.epoch);
+                            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
+                            let _ = self.check_timeout(&mut chain).await;            
+                            self.pubkey_to_chain.insert(leader, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
@@ -1287,7 +1291,7 @@ impl Core {
                     }
                 },
                 Some(message) = self.smvba_channel.recv() => {
-                    match message {
+                    let handler_result = match message {
                         ConsensusMessage::Timeout(timeout) => {
                             debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
@@ -1319,7 +1323,19 @@ impl Core {
                             result
                         },
                         _ => panic!("Unexpected protocol message")
+                    };
+                    let leader = self.leader_elector.get_leader(self.epoch);
+                    let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
+                    let next_leader = self.leader_elector.get_leader(self.epoch + 1);
+                    let _ = self.update_aba_phase(&mut chain).await;
+                    self.pubkey_to_chain.insert(leader, chain);
+                    
+                    if self.leader_elector.get_leader(self.epoch) == next_leader {
+                        let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
+                        let _ = self.commit_next_chain(&mut next_chain);
+                        self.pubkey_to_chain.insert(next_leader, next_chain);
                     }
+                    handler_result
                 },
             };
             match result {
@@ -1329,22 +1345,9 @@ impl Core {
                 Err(e) => warn!("{}", e),
             }
 
-            let leader = self.leader_elector.get_leader(self.epoch);
-            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); 
-            let next_leader = self.leader_elector.get_leader(self.epoch + 1);
-            let _ = self.update_aba_phase(&mut chain).await;
-            self.pubkey_to_chain.insert(leader, chain);
+
             
-            if self.leader_elector.get_leader(self.epoch) == next_leader {
-                let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
-                let _ = self.commit_next_chain(&mut next_chain);
-                self.pubkey_to_chain.insert(next_leader, next_chain);
-            }
-            
-            let leader = self.leader_elector.get_leader(self.epoch);
-            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
-            let _ = self.check_timeout(&mut chain).await;            
-            self.pubkey_to_chain.insert(leader, chain);
+
         }
     }
 }
