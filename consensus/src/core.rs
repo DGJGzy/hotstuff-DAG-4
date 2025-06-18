@@ -736,9 +736,6 @@ impl Core {
         debug!("Received prepare val {:?}", aba_val);
         aba_val.verify()?;
 
-        if self.aba_prepare_set.len() == self.committee.quorum_threshold() as usize {
-            return Ok(());
-        }
         self.aba_prepare_set.push(aba_val.val);
         if let Some(proof) = self.aggregator.add_aba_val(aba_val.clone())? {
             debug!("Assembled {:?}", proof);
@@ -893,11 +890,11 @@ impl Core {
         self.coin_share_broadcasted = false;
         self.aux_proof_broadcasted = false;
         self.bin_values.clear();
-        self.aba_val_phase_cache1.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
-        self.aba_val_phase_cache2.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
-        self.aba_aux_phase_cache.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
+        self.aba_val_phase_cache1.retain(|(k1, k2), _| k1 > &current_epoch || (k1 == &current_epoch && k2 >= &current_aba));
+        self.aba_val_phase_cache2.retain(|(k1, k2), _| k1 > &current_epoch || (k1 == &current_epoch && k2 >= &current_aba));
+        self.aba_aux_phase_cache.retain(|(k1, k2), _| k1 > &current_epoch || (k1 == &current_epoch && k2 >= &current_aba));
         // self.aba_coin_cache.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba); // coin is used for multiple rounds
-        self.aux_value_nums.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
+        self.aux_value_nums.retain(|(k1, k2), _| k1 > &current_epoch || (k1 == &current_epoch && k2 >= &current_aba));
         
         let message = ConsensusMessage::ABAVal(aba_val.clone());
         Synchronizer::transmit(
@@ -1030,15 +1027,13 @@ impl Core {
             }
         }
 
-        // We need to exit.
-        if self.phase == PREPARE_PHASE 
-            && self.aba_prepare_set.len() == self.committee.quorum_threshold() as usize 
-            && !self.prepare_proof_processed 
-        {
-            self.prepare_proof_processed = true;
+        if self.phase >= PREPARE_PHASE {
             if let Some(proof) = self.aba_prepare_proof_cache.get(&self.epoch) {
                 self.process_prepare_phase(proof.clone()).await?;
-            } else {
+            } else if !self.prepare_proof_processed 
+                && self.aba_prepare_set.len() >= self.committee.quorum_threshold() as usize 
+            {
+                self.prepare_proof_processed = true;
                 let first_odd: Option<&u64> = self.aba_prepare_set.iter().find(|&&seq| seq % 2 == 1);
                 if let Some(val) = first_odd {
                     self.aba_input_val.insert(1, *val);
@@ -1086,7 +1081,9 @@ impl Core {
         }
 
         if self.phase == COIN_PHASE {
-            if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
+            if self.aba_round == 1 {
+                self.process_coin_share(self.epoch, self.aba_round, 0).await?;
+            } else if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
                 self.process_coin_share(self.epoch, self.aba_round, *coin).await?;
             }
         }
