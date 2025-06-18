@@ -1112,6 +1112,7 @@ impl Core {
             return Ok(());
         }
 
+        debug!("Current phase: {}, bin_value empty: {}", self.phase, self.bin_values.is_empty());
         // Only first aba round.
         if self.phase == INIT_PHASE && self.tc_processed {
             debug!("Epoch {}, enter PREPARE_PHASE", self.epoch);
@@ -1344,10 +1345,6 @@ impl Core {
                 Err(ConsensusError::SerializationError(e)) => error!("Store corrupted. {}", e),
                 Err(e) => warn!("{}", e),
             }
-
-
-            
-
         }
     }
 }
