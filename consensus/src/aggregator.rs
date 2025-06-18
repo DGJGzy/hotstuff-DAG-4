@@ -3,6 +3,7 @@ use crate::core::{SeqNumber, VAL_PHASE};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{ABAProof, ABAVal, RandomnessShare, Timeout, Vote, QC, TC};
 use crypto::{PublicKey, Signature};
+use log::debug;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use threshold_crypto::PublicKeySet;
 // use std::convert::TryInto;
@@ -199,18 +200,7 @@ impl ABAProofMaker {
 
         self.votes.push((author, aba_val.signature));
         self.weight += committee.stake(&author);
-
-        if self.weight >= committee.quorum_threshold() {
-            self.weight = 0; 
-            return Ok(Some(ABAProof {
-                epoch: aba_val.epoch,
-                round: aba_val.round,
-                val: aba_val.val,
-                phase: aba_val.phase,
-                votes: self.votes.clone(),
-                tag: false, 
-            }));
-        }
+        debug!("phase: {}, weight: {}", aba_val.phase, self.weight);
 
         if self.weight == committee.random_coin_threshold() && aba_val.phase == VAL_PHASE {
             return Ok(Some(ABAProof {
@@ -219,9 +209,21 @@ impl ABAProofMaker {
                 val: aba_val.val,
                 phase: aba_val.phase,
                 votes: self.votes.clone(),
-                tag: true, 
+                tag: true,
             }));
         }
+
+        if self.weight == committee.quorum_threshold() {
+            return Ok(Some(ABAProof {
+                epoch: aba_val.epoch,
+                round: aba_val.round,
+                val: aba_val.val,
+                phase: aba_val.phase,
+                votes: self.votes.clone(),
+                tag: false,
+            }));
+        }
+
         Ok(None)
     }
 }

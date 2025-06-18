@@ -30,9 +30,10 @@ pub type SeqNumber = u64;
 const NEXT_EPOCH_HEIGHT: u64 = 10;
 // const LAMBDA_VAL: u64 = 10; // We can change timeout condition by changing this value.
 pub const INIT_PHASE: u8 = 0;
-pub const VAL_PHASE: u8 = 1;
-pub const AUX_PHASE: u8 = 2;
-pub const COIN_PHASE: u8 = 3;
+pub const PREPARE_PHASE: u8 = 1;
+pub const VAL_PHASE: u8 = 2;
+pub const AUX_PHASE: u8 = 3;
+pub const COIN_PHASE: u8 = 4;
 
 pub const HOTSTUFF: u8 = 0;
 pub const TCVBA: u8 = 1;
@@ -68,7 +69,7 @@ impl Chain {
     pub fn new(name: PublicKey, committee: Committee) -> Self {
         Self {
             name,
-            height: 1,
+            height: 0,
             last_voted_height: 0,
             last_committed_height: 0,
             last_pending_height: 0,
@@ -98,6 +99,7 @@ pub struct Core {
     epoch: SeqNumber,
     total_epoch: SeqNumber,
     tc_processed: bool,
+    prepare_proof_processed: bool,
     val_value_broadcasted: bool, // val_1
     aux_value_broadcasted: bool, // val_2
     coin_share_broadcasted: bool,
@@ -105,18 +107,21 @@ pub struct Core {
     is_view_change: bool,
     pubkey_to_chain: HashMap<PublicKey, Chain>,
     tc_cache: HashMap<SeqNumber, TC>, // epoch
+    aba_help_proof0_cache: HashMap<SeqNumber, ABAProof>,
+    aba_help_proof1_cache: HashMap<SeqNumber, ABAProof>,
+    aba_prepare_proof_cache: HashMap<SeqNumber, ABAProof>,
     aggregator: Aggregator,
     bin_values: HashSet<u64>,
     aba_round: SeqNumber,
     phase: u8,
     aba_output_val: Option<u64>, 
+    aba_prepare_set: Vec<SeqNumber>,
     aba_input_val: HashMap<SeqNumber, u64>, // round -> value
     aba_val_phase_cache1: HashMap<(SeqNumber, SeqNumber), ABAProof>,
     aba_val_phase_cache2: HashMap<(SeqNumber, SeqNumber), ABAProof>,
     aba_aux_phase_cache: HashMap<(SeqNumber, SeqNumber), ABAProof>, // 2f+1 aux values
     aux_value_nums: HashMap<(SeqNumber, SeqNumber), u64>, // the number of values in set "values"
     aba_coin_cache: HashMap<(SeqNumber, SeqNumber), usize>,
-    aba_proof_cache: HashMap<(SeqNumber, SeqNumber), ABAProof>,
 }
 
 impl Core {
@@ -161,6 +166,7 @@ impl Core {
             epoch: 0,
             total_epoch: 0,
             tc_processed: false,
+            prepare_proof_processed: false,
             val_value_broadcasted: false, // val_1
             aux_value_broadcasted: false, // val_2
             coin_share_broadcasted: false,
@@ -168,18 +174,21 @@ impl Core {
             is_view_change: false,
             pubkey_to_chain: pubkey_to_chain,
             tc_cache: HashMap::new(), // epoch
+            aba_help_proof0_cache: HashMap::new(),
+            aba_help_proof1_cache: HashMap::new(),
+            aba_prepare_proof_cache: HashMap::new(),
             aggregator: aggregator,
             bin_values: HashSet::new(),
             aba_round: 1,
             phase: INIT_PHASE,
             aba_output_val: None, 
+            aba_prepare_set: Vec::new(),
             aba_input_val: HashMap::new(), // round -> value
             aba_val_phase_cache1: HashMap::new(),
             aba_val_phase_cache2: HashMap::new(),
             aba_aux_phase_cache: HashMap::new(), // 2f+1 aux values
             aux_value_nums: HashMap::new(), // the number of values in set "values"
             aba_coin_cache: HashMap::new(),
-            aba_proof_cache: HashMap::new(),
         }
     }
 
@@ -294,6 +303,7 @@ impl Core {
     }
 
     fn update_high_qc(&mut self, qc: &QC, chain: &mut Chain) {
+        debug!("Processing update qc: {:?}", qc);
         chain.height_to_digest.insert(qc.height, qc.hash.clone());
         if qc.height > chain.high_qc.height {
             chain.high_qc = qc.clone();
@@ -397,7 +407,7 @@ impl Core {
         if height < chain.height {
             return;
         }
-        chain.height = height + 1;
+        chain.height = height;
         if chain.name == self.leader_elector.get_leader(self.epoch) {
             debug!("Leader Chain {} moved to height {}", chain.name, chain.height);
         } else {
@@ -436,7 +446,7 @@ impl Core {
         let block = Block::new(
             qc,
             self.name,
-            chain.height,
+            chain.height + 1,
             chain.epoch,
             self.epoch,
             payload,
@@ -479,7 +489,7 @@ impl Core {
     }
 
     async fn process_qc(&mut self, qc: &QC, chain: &mut Chain) {
-        self.advance_height(qc.height, chain).await;
+        // self.advance_height(qc.height, chain).await;
         self.update_high_qc(qc, chain);
     }
 
@@ -541,6 +551,10 @@ impl Core {
     #[async_recursion]
     async fn process_block(&mut self, block: &Block, chain: &mut Chain) -> ConsensusResult<()> {
         debug!("Processing {:?}", block);
+
+        self.advance_height(block.height, chain).await;
+        chain.height_to_digest.insert(block.height, block.digest());
+
         // Store block immediately.
         self.store_block(block).await;
 
@@ -606,32 +620,34 @@ impl Core {
     }
 
     async fn process_tc(&mut self, tc: TC) -> ConsensusResult<()> {
+        // No need to broadcast, because qc in 2f+1 timeout is needed.
         // Broadcast the TC.
-        let message = ConsensusMessage::TC(tc.clone()); 
-        Synchronizer::transmit(
-            message, 
-            &self.name, 
-            None, 
-            &self.network_filter_smvba, 
-            &self.committee,
-            TCVBA,
-        ).await?;
-        // Make a new block if we are in the leader chain.
+        // let message = ConsensusMessage::TC(tc.clone()); 
+        // Synchronizer::transmit(
+        //     message, 
+        //     &self.name, 
+        //     None, 
+        //     &self.network_filter_smvba, 
+        //     &self.committee,
+        //     TCVBA,
+        // ).await?;
+        // Make a new block if we are in the leaders chain.
         // Do it after aba output.
         // if chain.name == self.name {
         //     self.generate_proposal(Some(tc.clone()), chain).await;
         // }
         // High qc is aba input.
         let input_val = *tc.high_qc_rounds().iter().max().unwrap();
-        info!("input_val: {}", input_val);
+        debug!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
         // Broadcast the input.
+        let phase = if self.aba_round == 1 {PREPARE_PHASE} else {VAL_PHASE};
         let aba_val = ABAVal::new(
             self.name,
             self.epoch,
             1,
             input_val,
-            VAL_PHASE,
+            phase,
             self.signature_service.clone(),
         ).await;
         let message = ConsensusMessage::ABAVal(aba_val.clone());
@@ -661,9 +677,9 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
-                info!("aba status start, epoch {}", self.epoch);
+                debug!("aba status start, epoch {}", self.epoch);
                 for (_, info_chain) in self.pubkey_to_chain.clone() {
-                    info!("chain name {}, height {}", info_chain.name, info_chain.height);
+                    debug!("chain name {}, height {}", info_chain.name, info_chain.height);
                 }
                 debug!("chain {}: last pending height: {}, height: {}", other_chain.name, other_chain.last_pending_height, other_chain.height);
                 self.is_view_change = true;
@@ -711,6 +727,23 @@ impl Core {
                 self.aba_val_phase_cache1.insert((aba_proof.epoch, aba_proof.round), aba_proof);
             } else {
                 self.aba_val_phase_cache2.insert((aba_proof.epoch, aba_proof.round), aba_proof);
+            } 
+        }
+        Ok(())
+    }
+
+    pub async fn handle_prepare_phase(&mut self, aba_val: ABAVal) -> ConsensusResult<()> {
+        debug!("Received prepare val {:?}", aba_val);
+        aba_val.verify()?;
+
+        if self.aba_prepare_set.len() == self.committee.quorum_threshold() as usize {
+            return Ok(());
+        }
+        self.aba_prepare_set.push(aba_val.val);
+        if let Some(proof) = self.aggregator.add_aba_val(aba_val.clone())? {
+            debug!("Assembled {:?}", proof);
+            if proof.val % 2 == 1 {
+                self.aba_prepare_proof_cache.insert(proof.epoch, proof);
             }
         }
         Ok(())
@@ -772,6 +805,20 @@ impl Core {
             }
         }
         self.bin_values.insert(proof.val);
+        Ok(())
+    }
+
+    pub async fn process_prepare_phase(&mut self, proof: ABAProof) -> ConsensusResult<()> {
+        let message = ConsensusMessage::ABAProof(proof.clone());
+        Synchronizer::transmit(
+            message,
+            &self.name,
+            None,
+            &self.network_filter_smvba,
+            &self.committee,
+            TCVBA,
+        ).await?;
+        self.handle_aba_proof(proof).await?; 
         Ok(())
     }
 
@@ -851,7 +898,6 @@ impl Core {
         self.aba_aux_phase_cache.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
         // self.aba_coin_cache.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba); // coin is used for multiple rounds
         self.aux_value_nums.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
-        self.aba_proof_cache.retain(|(k1, k2), _| k1 == &current_epoch && k2 >= &current_aba);
         
         let message = ConsensusMessage::ABAVal(aba_val.clone());
         Synchronizer::transmit(
@@ -926,6 +972,9 @@ impl Core {
 
         let phase = aba_val.phase;
         match phase {
+            PREPARE_PHASE => {
+                self.handle_prepare_phase(aba_val.clone()).await?;
+            },  
             VAL_PHASE => {
                 self.handle_val_phase(aba_val.clone()).await?;
             },
@@ -938,15 +987,31 @@ impl Core {
     }
 
     pub async fn handle_aba_proof(&mut self, proof: ABAProof) -> ConsensusResult<()> {
-        if self.is_expired_aba_message(proof.epoch, proof.round) {
+        if proof.epoch < self.epoch {
             return Ok(());
         }
+
         proof.verify(&self.committee)?; 
-        self.aba_proof_cache.insert((proof.epoch, proof.round), proof);
+        
+        if proof.phase == PREPARE_PHASE {
+            self.aba_prepare_proof_cache.insert(proof.epoch, proof);
+            return Ok(());
+        }
+
+        // Process later, need coin.
+        if proof.val % 2 == 0 {
+            self.aba_help_proof0_cache.insert(proof.epoch, proof);
+        } else {
+            self.aba_help_proof1_cache.insert(proof.epoch, proof);
+        }
         Ok(())
     }
 
     pub async fn process_aba_proof(&mut self, proof: ABAProof) -> ConsensusResult<()> {
+        if proof.phase == PREPARE_PHASE {
+            self.aba_output_val = Some(proof.val);
+            return Ok(());
+        }
         // We must have coin.
         if let Some(coin) = self.aba_coin_cache.get(&(proof.epoch, proof.round)) {
             if proof.val % 2 == *coin as u64 {
@@ -964,6 +1029,41 @@ impl Core {
                 self.tc_processed = true;
             }
         }
+
+        // We need to exit.
+        if self.phase == PREPARE_PHASE 
+            && self.aba_prepare_set.len() == self.committee.quorum_threshold() as usize 
+            && !self.prepare_proof_processed 
+        {
+            self.prepare_proof_processed = true;
+            if let Some(proof) = self.aba_prepare_proof_cache.get(&self.epoch) {
+                self.process_prepare_phase(proof.clone()).await?;
+            } else {
+                let first_odd: Option<&u64> = self.aba_prepare_set.iter().find(|&&seq| seq % 2 == 1);
+                if let Some(val) = first_odd {
+                    self.aba_input_val.insert(1, *val);
+                }
+                let input_val = *self.aba_input_val.get(&1).unwrap();
+                let aba_val = ABAVal::new(
+                    self.name,
+                    self.epoch,
+                    1,
+                    input_val,
+                    VAL_PHASE,
+                    self.signature_service.clone(),
+                ).await;
+                let message = ConsensusMessage::ABAVal(aba_val.clone());
+                Synchronizer::transmit(
+                    message, 
+                    &self.name, 
+                    None, 
+                    &self.network_filter_smvba, 
+                    &self.committee,
+                    TCVBA,
+                ).await?;
+                self.handle_aba_val(aba_val).await?;
+            }
+        } 
 
         if self.phase >= VAL_PHASE {
             if let Some(proof) = self.aba_val_phase_cache1.get(&(self.epoch, self.aba_round)) {
@@ -985,7 +1085,7 @@ impl Core {
             }
         }
 
-        if self.phase >= COIN_PHASE {
+        if self.phase == COIN_PHASE {
             if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
                 self.process_coin_share(self.epoch, self.aba_round, *coin).await?;
             }
@@ -993,9 +1093,14 @@ impl Core {
 
         // We can process HELP_PHASE if we are changing view.
         if self.is_view_change {
-            if let Some(proof) = self.aba_proof_cache.get(&(self.epoch, self.aba_round)) {
+            if let Some(proof) = self.aba_prepare_proof_cache.get(&self.epoch) {
+                debug!("fast pace!");
                 self.process_aba_proof(proof.clone()).await?;
-            } 
+            } else if let Some(proof) = self.aba_help_proof0_cache.get(&self.epoch) {
+                self.process_aba_proof(proof.clone()).await?;
+            } else if let Some(proof) = self.aba_help_proof1_cache.get(&self.epoch) {
+                self.process_aba_proof(proof.clone()).await?;
+            }
         }
 
         Ok(())
@@ -1006,13 +1111,20 @@ impl Core {
         if !self.is_view_change {
             return Ok(());
         }
+
+        // Only first aba round.
         if self.phase == INIT_PHASE && self.tc_processed {
-            info!("Epoch {}, enter VAL_PHASE", self.epoch);
+            debug!("Epoch {}, enter PREPARE_PHASE", self.epoch);
+            self.phase = PREPARE_PHASE;
+        }
+
+        if self.phase == PREPARE_PHASE && self.prepare_proof_processed {
+            debug!("Epoch {}, enter VAL_PHASE", self.epoch);
             self.phase = VAL_PHASE;
         }
 
         if self.phase == VAL_PHASE && !self.bin_values.is_empty() {
-            info!("Epoch {}, enter AUX_PHASE", self.epoch);
+            debug!("Epoch {}, enter AUX_PHASE", self.epoch);
             self.phase = AUX_PHASE;
         }
 
@@ -1024,7 +1136,7 @@ impl Core {
             && (self.bin_values.len() == 2 || self.aba_aux_phase_cache
                 .contains_key(&(self.epoch, self.aba_round)))
         {
-            info!("Epoch {}, enter COIN_PHASE", self.epoch);
+            debug!("Epoch {}, enter COIN_PHASE", self.epoch);
             self.phase = COIN_PHASE;
         }
 
@@ -1037,12 +1149,12 @@ impl Core {
         // }
 
         if self.aba_output_val.is_some() {
-            info!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
+            debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
             // prepare block
             let output_height = self.aba_output_val.unwrap();
-            info!("output_height: {}", output_height);
+            debug!("output_height: {}", output_height);
             if !chain.height_to_digest.contains_key(&output_height) {
-                info!("No such height!");
+                debug!("No such height!");
                 return Ok(());
             }  
             let digest = chain.height_to_digest.get(&output_height).unwrap();     
@@ -1052,14 +1164,14 @@ impl Core {
                 None
             ).await?;
             if block.is_none() {
-                info!("No such block, chain {}, height {}", chain.name, output_height);
+                debug!("No such block, chain {}, height {}", chain.name, output_height);
                 return Ok(());
             }
             // commit block 
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
-            info!("aba status end, epoch {}", self.epoch);
+            debug!("aba status end, epoch {}", self.epoch);
             // advance epoch
             self.epoch += 1;
             debug!("advance epoch, epoch: {}", self.epoch);
@@ -1069,12 +1181,13 @@ impl Core {
             // chain.high_qc = QC::genesis();
             chain.epoch += 1;
             chain.height = output_height + NEXT_EPOCH_HEIGHT;
-            chain.last_committed_height = chain.height - 1;
-            chain.last_pending_height = chain.height - 1;
+            chain.last_committed_height = chain.height;
+            chain.last_pending_height = chain.height;
             // clean all data structure, only base epoch
             let current_epoch = self.epoch;
             self.is_view_change = false;
             self.tc_processed = false;
+            self.prepare_proof_processed = false;
             self.val_value_broadcasted = false;
             self.aux_value_broadcasted = false;
             self.coin_share_broadcasted = false;
@@ -1084,14 +1197,17 @@ impl Core {
             self.aba_round = 1;
             self.phase = INIT_PHASE;
             self.aba_output_val = None;
+            self.aba_prepare_set.clear();
             self.aba_input_val.clear();
             self.tc_cache.retain(|k, _| k >= &current_epoch);
+            self.aba_help_proof0_cache.retain(|k, _| k >= &current_epoch);
+            self.aba_help_proof1_cache.retain(|k, _| k >= &current_epoch);
+            self.aba_prepare_proof_cache.retain(|k, _| k >= &current_epoch);
             self.aba_val_phase_cache1.retain(|(k, _), _| k >= &current_epoch);
             self.aba_val_phase_cache2.retain(|(k, _), _| k >= &current_epoch);
             self.aba_aux_phase_cache.retain(|(k, _), _| k >= &current_epoch);
             self.aba_coin_cache.retain(|(k, _), _| k >= &current_epoch);
             self.aux_value_nums.retain(|(k, _), _| k >= &current_epoch);
-            self.aba_proof_cache.retain(|(k, _), _| k >= &current_epoch);
             // Broadcast new block.
             if chain.name == self.name {
                 let block = self.generate_proposal(&chain, true).await;
@@ -1113,7 +1229,7 @@ impl Core {
             None
         ).await?;
         if next_block.is_none() {
-            info!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
+            debug!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
             return Ok(());
         }
         let to_commit_block = next_block.unwrap();
@@ -1135,33 +1251,33 @@ impl Core {
                 Some(message) = self.core_channel.recv() => {
                     match message {
                         ConsensusMessage::Propose(block) => {
-                            info!("receive propose from {}, height {}", block.author, block.height);
+                            debug!("receive propose from {}, height {}", block.author, block.height);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },
                         ConsensusMessage::Vote(vote) => {
-                            info!("receive vote from {}", vote.author);
+                            debug!("receive vote from {}", vote.author);
                             let mut chain = self.pubkey_to_chain.get(&vote.proposer).cloned().unwrap(); // Use proposer instead of author.
                             let result = self.handle_vote(&vote, &mut chain).await;
                             self.pubkey_to_chain.insert(vote.proposer, chain);
                             result
                         },
                         ConsensusMessage::LoopBack(block) => {
-                            info!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
+                            debug!("Epoch: {}, receive loopback block from {}", self.total_epoch, block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.process_block(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
                             result
                         },                        
                         ConsensusMessage::SyncRequest(digest, sender) => {
-                            info!("receive sync request {} from {}", digest, sender);
+                            debug!("receive sync request {} from {}", digest, sender);
                             let result = self.handle_sync_request(digest, sender).await;
                             result
                         },
                         ConsensusMessage::SyncReply(block) => {
-                            info!("receive sync reply from {}", block.author);
+                            debug!("receive sync reply from {}", block.author);
                             let mut chain = self.pubkey_to_chain.get(&block.author).cloned().unwrap();
                             let result = self.handle_proposal(&block, &mut chain).await;
                             self.pubkey_to_chain.insert(block.author, chain);
@@ -1173,7 +1289,7 @@ impl Core {
                 Some(message) = self.smvba_channel.recv() => {
                     match message {
                         ConsensusMessage::Timeout(timeout) => {
-                            info!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
+                            debug!("receive timeout from {}, epoch {}", timeout.author, timeout.epoch);
                             let leader = self.leader_elector.get_leader(timeout.epoch);
                             let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap();
                             let result = self.handle_timeout(&timeout, &mut chain).await;
@@ -1181,24 +1297,24 @@ impl Core {
                             result
                         },
                         ConsensusMessage::TC(tc) => {
-                            info!("receive tc, epoch {}", tc.epoch);
+                            debug!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
-                            info!("receive aba_val from {}, epoch {}, round {}, phase {}, val {}", 
+                            debug!("receive aba_val from {}, epoch {}, round {}, phase {}, val {}", 
                                 aba_val.author, aba_val.epoch, aba_val.round, aba_val.phase, aba_val.val);
                             let result = self.handle_aba_val(aba_val).await;
                             result
                         },
                         ConsensusMessage::ABAProof(proof) => {
-                            info!("receive aba_proof, epoch {}, round {}, val {}",
+                            debug!("receive aba_proof, epoch {}, round {}, val {}",
                                 proof.epoch, proof.round, proof.val);
                             let result = self.handle_aba_proof(proof).await;
                             result
                         },
                         ConsensusMessage::ABACoinShare(share) => {
-                            info!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
+                            debug!("receive aba_coin_share from {}, epoch {}, round {}", share.author, share.epoch, share.round);
                             let result = self.handle_coin_share(share).await;
                             result
                         },
