@@ -12,7 +12,7 @@
     "repo": {
         "name": "hotstuff-DAG-4",
         "url": "https://github.com/DGJGzy/hotstuff-DAG-4.git",
-        "branch": "test100"
+        "branch": "test1000"
     },
     "instances": {
         "type": "m5d.xlarge",

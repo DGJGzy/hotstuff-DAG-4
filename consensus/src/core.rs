@@ -667,6 +667,7 @@ impl Core {
     pub async fn check_timeout(&mut self, chain: &mut Chain) -> ConsensusResult<()> {
         // If we have tc, enter in view-change.
         if self.tc_cache.contains_key(&self.epoch) {
+            debug!("aba status start, epoch {}", self.epoch);
             self.is_view_change = true;
         }
         // If we are changing view, no need to send timeout.
