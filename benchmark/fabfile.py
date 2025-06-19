@@ -30,7 +30,7 @@ def local(ctx):
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0, # multiplicative factor for exponential fallback
-            'lambda': 20,
+            'lambda': 5,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -106,7 +106,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [7],
-        'rate': [140000],
+        'rate': [20000, 180000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,

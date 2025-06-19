@@ -667,8 +667,10 @@ impl Core {
     pub async fn check_timeout(&mut self, chain: &mut Chain) -> ConsensusResult<()> {
         // If we have tc, enter in view-change.
         if self.tc_cache.contains_key(&self.epoch) {
-            debug!("aba status start, epoch {}", self.epoch);
-            self.is_view_change = true;
+            if !self.is_view_change {
+                debug!("aba status start, epoch {}", self.epoch);
+                self.is_view_change = true;
+            }  
         }
         // If we are changing view, no need to send timeout.
         if self.is_view_change {
@@ -1306,6 +1308,10 @@ impl Core {
                         ConsensusMessage::TC(tc) => {
                             debug!("receive tc, epoch {}", tc.epoch);
                             let result = self.handle_tc(tc).await;
+                            let leader = self.leader_elector.get_leader(self.epoch);
+                            let mut chain = self.pubkey_to_chain.get(&leader).cloned().unwrap(); // should be leader not self
+                            let _ = self.check_timeout(&mut chain).await;            
+                            self.pubkey_to_chain.insert(leader, chain);
                             result
                         },
                         ConsensusMessage::ABAVal(aba_val) => {
