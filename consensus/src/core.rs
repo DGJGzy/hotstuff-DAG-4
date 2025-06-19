@@ -958,7 +958,8 @@ impl Core {
                 }
             }
             // advance aba round
-            self.advance_aba_round(coin as u64).await?;
+            let val = *self.bin_values.iter().find(|&&value| value % 2 == coin as u64).unwrap();
+            self.advance_aba_round(val).await?;
         }
         
         Ok(())
