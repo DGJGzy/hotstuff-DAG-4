@@ -13,7 +13,7 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 7,
-        'rate': 100000,
+        'rate': 60000,
         'tx_size': 16,
         'faults': 0,
         'duration': 10,
@@ -26,11 +26,11 @@ def local(ctx):
             'max_payload_size': 500,
             'min_block_delay': 0,
             'network_delay': 10000, # message delay on the leaders' proposals during DDoS, valid when ddos is True
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0, # multiplicative factor for exponential fallback
-            'lambda': 5,
+            'lambda': 20,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -106,7 +106,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [7],
-        'rate': [20000, 180000],
+        'rate': [60000, 180000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -124,7 +124,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 10,
+            'lambda': 5,
         },
         'mempool': {
             'queue_capacity': 100_000,

@@ -1088,9 +1088,11 @@ impl Core {
         }
 
         if self.phase == COIN_PHASE {
-            if self.aba_round == 1 {
-                self.process_coin_share(self.epoch, self.aba_round, 0).await?;
-            } else if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
+            // Ensure we have coin, proof verification needs coin.
+            if self.aba_round == 1 && !self.aba_coin_cache.contains_key(&(self.epoch, self.aba_round)) {
+                self.aba_coin_cache.insert((self.epoch, self.aba_round), 0);
+            } 
+            if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
                 self.process_coin_share(self.epoch, self.aba_round, *coin).await?;
             }
         }
