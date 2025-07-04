@@ -34,6 +34,8 @@ pub struct Parameters {
     pub random_ddos_chance: u64,
     pub exp: u64,
     pub lambda: u64,
+    pub unstable_ddos: bool,
+    pub unstable_delay: u64,
 }
 
 impl Default for Parameters {
@@ -49,7 +51,9 @@ impl Default for Parameters {
             random_ddos: false,
             random_ddos_chance: 5,
             exp: 1,
-            lambda: 5,
+            lambda: 10,
+            unstable_ddos: false,
+            unstable_delay: 500,
         }
     }
 }

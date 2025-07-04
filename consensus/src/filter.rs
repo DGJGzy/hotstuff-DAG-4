@@ -58,8 +58,8 @@ impl Filter {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             } else if parameters.ddos && block.author == leader_elector.get_leader(block.total_epoch) {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
-            } else if block.author != leader_elector.get_leader(block.total_epoch) {
-                sleep(Duration::from_millis(100)).await;
+            } else if parameters.unstable_ddos && block.author != leader_elector.get_leader(1) {
+                sleep(Duration::from_millis(parameters.unstable_delay)).await;
             }
         }
         input
