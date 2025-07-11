@@ -4,6 +4,7 @@ use crate::leader::LeaderElector;
 use bytes::Bytes;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
+use log::debug;
 use network::NetMessage;
 use rand::Rng;
 use std::net::SocketAddr;
@@ -59,6 +60,7 @@ impl Filter {
             } else if parameters.ddos && block.author == leader_elector.get_leader(block.total_epoch) {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             } else if parameters.unstable_ddos && block.author != leader_elector.get_leader(1) {
+                debug!("Delay success {}", block.author);
                 sleep(Duration::from_millis(parameters.unstable_delay)).await;
             }
         }
