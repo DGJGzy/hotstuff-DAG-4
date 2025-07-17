@@ -50,7 +50,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=2): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=15): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -107,16 +107,16 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [7],
-        'rate': [60000, 100000, 140000, 180000, 220000, 260000, 280000],
+        'nodes': [28],
+        'rate': [340000],
         'tx_size': 256,
         'faults': 0, 
-        'duration': 100,
+        'duration': 156,
         'runs': 1,
     }
     node_params = {
         'consensus': {
-            'node_sync_delay': 10,
+            'node_sync_delay': 56_000,
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 1_000, # size of payloads in block
@@ -126,20 +126,20 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 10,
-            'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
-            'unstable_delay': 1000, # Optimistic delay
+            'lambda': 30,
+            'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
+            'unstable_delay': 500, # Optimistic delay
         },
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 256_000, # payload size
-            'min_block_delay': 25 # minimum delay between payloads
+            'min_block_delay': 75 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug=True)
+        Bench(ctx).run(bench_params, node_params, debug=False)
     except BenchError as e:
         Print.error(e)
 
