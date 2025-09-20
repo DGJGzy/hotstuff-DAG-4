@@ -1228,8 +1228,14 @@ impl Core {
     }
 
     pub async fn commit_next_chain(&mut self, next_chain: &mut Chain) -> ConsensusResult<()> {
+        debug!("Try to commit next chain {}", next_chain.name);
         // Commit next chain.
-        let next_digest = next_chain.height_to_digest.get(&next_chain.height).unwrap();     
+        let option_next_digest = next_chain.height_to_digest.get(&next_chain.height);     
+        if option_next_digest.is_none() {
+            debug!("No such block, chain {}, height {}", next_chain.name, next_chain.height);
+            return Ok(());
+        }
+        let next_digest = option_next_digest.unwrap();     
         let next_block= self.synchronizer.get_block(
             self.name, 
             next_digest,
@@ -1240,7 +1246,15 @@ impl Core {
             return Ok(());
         }
         let to_commit_block = next_block.unwrap();
-        self.process_block(&to_commit_block, next_chain).await?;
+        if to_commit_block.author == self.leader_elector.get_leader(self.epoch) {
+            if let Some((b0, b1)) = self.process_block_prepare(&to_commit_block).await? {
+                if !self.is_view_change && to_commit_block.epoch <= next_chain.epoch {
+                   self.process_block_commit(b0, b1, next_chain).await?; 
+                }    
+            }
+        } else {
+            self.process_block_prepare(&to_commit_block).await?;
+        }        
         Ok(())
     }
 
@@ -1351,9 +1365,17 @@ impl Core {
             
             if self.leader_elector.get_leader(self.epoch) == next_leader {
                 let mut next_chain = self.pubkey_to_chain.get(&next_leader).cloned().unwrap(); 
-                let _ = self.commit_next_chain(&mut next_chain);
+                let _ = self.commit_next_chain(&mut next_chain).await;
                 self.pubkey_to_chain.insert(next_leader, next_chain);
             }
+            // if self.total_epoch % 20 == 0 {
+            //     for (_, info_chain) in self.pubkey_to_chain.clone() {
+            //         debug!("chain name {}, height {}", info_chain.name, info_chain.height);
+            //     }
+            // }
+            // for (_, info_chain) in self.pubkey_to_chain.clone() {
+            //     debug!("now chain name {}, uncommit block {}", info_chain.name, info_chain.height - info_chain.last_pending_height);
+            // }
         }
     }
 }

@@ -196,6 +196,7 @@ impl Synchronizer {
         match self.store.read(digest.to_vec()).await? {
             Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
             None => {
+                debug!("not ok");
                 if let Err(e) = self
                     .inner_channel      
                     .send((vec![(author, digest.clone())], block))

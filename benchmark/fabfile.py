@@ -122,7 +122,7 @@ def remote(ctx):
             'max_payload_size': 1_000, # size of payloads in block
             'min_block_delay': 100, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
@@ -134,12 +134,12 @@ def remote(ctx):
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 256_000, # payload size
-            'min_block_delay': 50 # minimum delay between payloads
+            'min_block_delay': 25 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug=False)
+        Bench(ctx).run(bench_params, node_params, debug=True)
     except BenchError as e:
         Print.error(e)
 
