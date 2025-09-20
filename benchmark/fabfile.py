@@ -126,7 +126,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 10,
+            'lambda': 15,
             'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
             'unstable_delay': 500, # Optimistic delay
         },

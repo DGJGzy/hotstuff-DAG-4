@@ -1373,9 +1373,9 @@ impl Core {
             //         debug!("chain name {}, height {}", info_chain.name, info_chain.height);
             //     }
             // }
-            // for (_, info_chain) in self.pubkey_to_chain.clone() {
-            //     debug!("now chain name {}, uncommit block {}", info_chain.name, info_chain.height - info_chain.last_pending_height);
-            // }
+            for (_, info_chain) in self.pubkey_to_chain.clone() {
+                debug!("now chain name {}, uncommit block {}", info_chain.name, info_chain.height - info_chain.last_pending_height);
+            }
         }
     }
 }
