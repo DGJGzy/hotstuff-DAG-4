@@ -12,11 +12,11 @@ from aws.remote import Bench, BenchError
 def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
-        'nodes': 4,
+        'nodes': 7,
         'rate': 100000,
         'tx_size': 256,
         'faults': 0,
-        'duration': 10,
+        'duration': 30,
     }
     node_params = {
         'consensus': {
@@ -26,11 +26,11 @@ def local(ctx):
             'max_payload_size': 500,
             'min_block_delay': 0,
             'network_delay': 10000, # message delay on the leaders' proposals during DDoS, valid when ddos is True
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0, # multiplicative factor for exponential fallback
-            'lambda': 20,
+            'lambda': 10,
             'unstable_ddos': False,
             'unstable_delay': 500,
         },
@@ -43,14 +43,14 @@ def local(ctx):
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA, now unused
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=True).result()
+        ret = LocalBench(bench_params, node_params).run(debug=False).result()
         print(ret)
     except BenchError as e:
         Print.error(e)
 
 
 @task
-def create(ctx, nodes=15): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=2): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -107,16 +107,16 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [28],
-        'rate': [340000],
+        'nodes': [7],
+        'rate': [60000],
         'tx_size': 256,
         'faults': 0, 
-        'duration': 156,
+        'duration': 100,
         'runs': 1,
     }
     node_params = {
         'consensus': {
-            'node_sync_delay': 56_000,
+            'node_sync_delay': 10_000,
             'timeout_delay': 10_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 1_000, # size of payloads in block
@@ -126,7 +126,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 30,
+            'lambda': 10,
             'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
             'unstable_delay': 500, # Optimistic delay
         },
@@ -134,7 +134,7 @@ def remote(ctx):
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
             'max_payload_size': 256_000, # payload size
-            'min_block_delay': 75 # minimum delay between payloads
+            'min_block_delay': 50 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
