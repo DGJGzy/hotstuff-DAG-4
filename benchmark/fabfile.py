@@ -26,13 +26,13 @@ def local(ctx):
             'max_payload_size': 500,
             'min_block_delay': 0,
             'network_delay': 10000, # message delay on the leaders' proposals during DDoS, valid when ddos is True
-            'ddos': True, # True for DDoS attack on the leader, False otherwise
+            'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 0, # multiplicative factor for exponential fallback
             'lambda': 10,
-            'unstable_ddos': False,
-            'unstable_delay': 500,
+            'unstable_ddos': True,
+            'unstable_delay': 0,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -43,7 +43,7 @@ def local(ctx):
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA, now unused
     }
     try:
-        ret = LocalBench(bench_params, node_params).run(debug=False).result()
+        ret = LocalBench(bench_params, node_params).run(debug=True).result()
         print(ret)
     except BenchError as e:
         Print.error(e)
@@ -122,13 +122,13 @@ def remote(ctx):
             'max_payload_size': 1_000, # size of payloads in block
             'min_block_delay': 100, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
-            'ddos': True, # True for DDoS attack on the leader, False otherwise
+            'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 15,
-            'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
-            'unstable_delay': 500, # Optimistic delay
+            'lambda': 5,
+            'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
+            'unstable_delay': 0, # Optimistic delay
         },
         'mempool': {
             'queue_capacity': 100_000,
