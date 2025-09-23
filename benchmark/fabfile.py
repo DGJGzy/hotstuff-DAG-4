@@ -108,7 +108,7 @@ def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
         'nodes': [7],
-        'rate': [60000],
+        'rate': [100000],
         'tx_size': 256,
         'faults': 0, 
         'duration': 100,
@@ -126,7 +126,7 @@ def remote(ctx):
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 5,
+            'lambda': 10,
             'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
             'unstable_delay': 0, # Optimistic delay
         },
