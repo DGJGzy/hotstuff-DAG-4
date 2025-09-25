@@ -27,6 +27,11 @@ impl RandomLeaderElector {
         keys[epoch as usize % self.committee.size()]
     }
 
+    pub fn get_idx(&self, key: &PublicKey) -> SeqNumber {
+        let mut keys: Vec<_> = self.committee.authorities.keys().cloned().collect();
+        keys.sort();
+        keys.iter().position(|k| k == key).unwrap() as SeqNumber
+    }
     // pub fn add_random_coin(&mut self, random_coin: RandomCoin) {
     //     self.random_coins
     //         .insert((random_coin.height, random_coin.round), random_coin);

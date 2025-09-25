@@ -2,16 +2,21 @@ use crate::config::Parameters;
 use crate::core::ConsensusMessage;
 use crate::leader::LeaderElector;
 use bytes::Bytes;
+use crypto::PublicKey;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::debug;
 use network::NetMessage;
 use rand::Rng;
 use std::net::SocketAddr;
+use std::sync::OnceLock;
+use std::time::Instant;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
 pub type FilterInput = (ConsensusMessage, Vec<SocketAddr>);
+
+static START_TIME: OnceLock<Instant> = OnceLock::new();
 
 pub struct Filter;
 
@@ -23,14 +28,17 @@ impl Filter {
         net_smvba: Sender<NetMessage>,
         parameters: Parameters,
         leader_elector: LeaderElector,
+        name: PublicKey,
     ) {
+        START_TIME.set(Instant::now()).unwrap_or(());
+
         tokio::spawn(async move {
             let mut pending = FuturesUnordered::new();
             let mut pending_smvba = FuturesUnordered::new();
             loop {
                 tokio::select! {
-                    Some(input) = core.recv() => pending.push(Self::delay(input, parameters.clone(), &leader_elector)),
-                    Some(input) = core_smvba.recv() => pending_smvba.push(Self::delay(input, parameters.clone(), &leader_elector)),
+                    Some(input) = core.recv() => pending.push(Self::delay(input, parameters.clone(), &leader_elector, name)),
+                    Some(input) = core_smvba.recv() => pending_smvba.push(Self::delay(input, parameters.clone(), &leader_elector, name)),
                     Some(input) = pending.next() => Self::transmit(input, &network).await,
                     Some(input) = pending_smvba.next() => Self::transmit(input, &net_smvba).await,
                     else => break
@@ -48,7 +56,7 @@ impl Filter {
         }
     }
 
-    async fn delay(input: FilterInput, parameters: Parameters, leader_elector: &LeaderElector) -> FilterInput {
+    async fn delay(input: FilterInput, parameters: Parameters, leader_elector: &LeaderElector, name: PublicKey) -> FilterInput {
         let (message, _) = &input;
         if let ConsensusMessage::Propose(block) = message {
             // NOTE: Increase the delay here (you can use any value from the 'parameters').
@@ -63,9 +71,23 @@ impl Filter {
                 debug!("Delay success {}", block.author);
                 sleep(Duration::from_millis(parameters.unstable_delay)).await;
             } else if parameters.unstable_ddos && parameters.unstable_delay == 0 {
-                // let delay_ms = 500 + rand::thread_rng().gen::<u64>() % 500;
-                let delay_ms = 750;
+                let delay_ms = 500 + rand::thread_rng().gen::<u64>() % 500;
                 sleep(Duration::from_millis(delay_ms)).await;
+            }
+
+            if parameters.unstable_ddos && parameters.unstable_delay == 1024 {
+                if let Some(start_time) = START_TIME.get() {
+                    let elapsed = start_time.elapsed().as_secs();
+                    let cycle_position = elapsed % 90;
+                    if cycle_position >= 60 {
+                        let from = leader_elector.get_idx(&block.author);
+                        let to = leader_elector.get_idx(&name);
+                        if ((0..=3).contains(&from) && (4..=6).contains(&to)) 
+                        || ((4..=6).contains(&from) && (0..=3).contains(&to)) {
+                            sleep(Duration::from_millis(parameters.network_delay)).await; 
+                        } 
+                    }
+                }
             }
         }
         input
