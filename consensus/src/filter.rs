@@ -67,7 +67,9 @@ impl Filter {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
             } else if parameters.ddos && block.author == leader_elector.get_leader(block.total_epoch) {
                 sleep(Duration::from_millis(parameters.network_delay)).await;
-            } else if parameters.unstable_ddos && block.author != leader_elector.get_leader(1) && parameters.unstable_delay > 0 {
+            } else if parameters.unstable_ddos && block.author != leader_elector.get_leader(1) 
+                && parameters.unstable_delay > 0 && parameters.unstable_delay != 1024
+            {
                 debug!("Delay success {}", block.author);
                 sleep(Duration::from_millis(parameters.unstable_delay)).await;
             } else if parameters.unstable_ddos && parameters.unstable_delay == 0 {

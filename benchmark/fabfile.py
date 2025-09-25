@@ -128,7 +128,7 @@ def remote(ctx):
             'exp': 5, # multiplicative factor for exponential fallback
             'lambda': 10,
             'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
-            'unstable_delay': 0, # Optimistic delay
+            'unstable_delay': 1024, # Optimistic delay
         },
         'mempool': {
             'queue_capacity': 100_000,
