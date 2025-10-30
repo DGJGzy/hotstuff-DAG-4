@@ -122,6 +122,9 @@ pub struct Core {
     aba_aux_phase_cache: HashMap<(SeqNumber, SeqNumber), ABAProof>, // 2f+1 aux values
     aux_value_nums: HashMap<(SeqNumber, SeqNumber), u64>, // the number of values in set "values"
     aba_coin_cache: HashMap<(SeqNumber, SeqNumber), usize>,
+    chain_committed: HashMap<SeqNumber, SeqNumber>, // epoch -> committed block number
+    exp_num: u64, // number of retry paths
+    exp_counter: u64, // number of executed retry paths
 }
 
 impl Core {
@@ -189,6 +192,9 @@ impl Core {
             aba_aux_phase_cache: HashMap::new(), // 2f+1 aux values
             aux_value_nums: HashMap::new(), // the number of values in set "values"
             aba_coin_cache: HashMap::new(),
+            chain_committed: HashMap::new(),
+            exp_num: 0,
+            exp_counter: 0,
         }
     }
 
@@ -566,8 +572,12 @@ impl Core {
         if block.author == self.leader_elector.get_leader(self.epoch) {
             if let Some((b0, b1)) = self.process_block_prepare(block).await? {
                 if !self.is_view_change && block.epoch <= chain.epoch {
-                   self.process_block_commit(b0, b1, chain).await?; 
-                }    
+                    let committed_block_number = self.chain_committed
+                        .entry(self.epoch)
+                        .or_insert(0);
+                    *committed_block_number += 1;
+                    self.process_block_commit(b0, b1, chain).await?;
+                }
             }
         } else {
             self.process_block_prepare(block).await?;
@@ -1179,9 +1189,36 @@ impl Core {
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
             debug!("aba status end, epoch {}", self.epoch);
+            // handle adaptive lambda
+            let committed_block_number = self.chain_committed
+                .entry(self.epoch)
+                .or_insert(0);
+            // TODO: do not fix 5
+            if *committed_block_number < 5 {
+                // TODO: do not fix 5, 40
+                if self.parameters.lambda == 5 || self.exp_num != 0 {
+                    if self.exp_num == 0 {
+                        self.exp_num = 1;
+                    }
+                    self.exp_counter += 1;
+                    if self.exp_counter == self.exp_num {
+                        self.parameters.lambda = 40;
+                    } else if self.exp_counter > self.exp_num {
+                        self.parameters.lambda = 5;
+                        self.exp_num *= self.parameters.exp;
+                        self.exp_counter = 0;
+                    }
+                } else {
+                    self.parameters.lambda /= 2;
+                }
+            } else {
+                self.exp_num = 0;
+                self.exp_counter = 0;
+            }
             // advance epoch
             self.epoch += 1;
             debug!("advance epoch, epoch: {}", self.epoch);
+            debug!("epoch {}, lambda {}", self.epoch, self.parameters.lambda);
             // reset previous leader chain
             // chain.reset(self.epoch);
             chain.height_to_digest.retain(|k, _| k > &output_height);

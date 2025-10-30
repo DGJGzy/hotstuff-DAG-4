@@ -16,7 +16,7 @@ def local(ctx):
         'rate': 100000,
         'tx_size': 256,
         'faults': 0,
-        'duration': 30,
+        'duration': 60,
     }
     node_params = {
         'consensus': {
@@ -26,13 +26,13 @@ def local(ctx):
             'max_payload_size': 500,
             'min_block_delay': 0,
             'network_delay': 10000, # message delay on the leaders' proposals during DDoS, valid when ddos is True
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False, # 100% delay
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
-            'exp': 0, # multiplicative factor for exponential fallback
-            'lambda': 10,
-            'unstable_ddos': True,
-            'unstable_delay': 0,
+            'exp': 2, # multiplicative factor for exponential fallback
+            'lambda': 40,
+            'unstable_ddos': False,
+            'unstable_delay': 500,
         },
         'mempool': {
             'queue_capacity': 10_000,
@@ -111,7 +111,7 @@ def remote(ctx):
         'rate': [60000, 140000, 220000],
         'tx_size': 256,
         'faults': 0, 
-        'duration': 100,
+        'duration': 300,
         'runs': 1,
     }
     node_params = {
@@ -122,13 +122,13 @@ def remote(ctx):
             'max_payload_size': 1_000, # size of payloads in block
             'min_block_delay': 100, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
-            'ddos': False, # True for DDoS attack on the leader, False otherwise
+            'ddos': True, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_ddos_chance': 5,
-            'exp': 5, # multiplicative factor for exponential fallback
-            'lambda': 10,
-            'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
-            'unstable_delay': 1024, # Optimistic delay
+            'exp': 2, # multiplicative factor for exponential fallback
+            'lambda': 40,
+            'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
+            'unstable_delay': 500, # Optimistic delay
         },
         'mempool': {
             'queue_capacity': 100_000,
