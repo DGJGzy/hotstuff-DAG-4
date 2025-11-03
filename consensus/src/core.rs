@@ -650,6 +650,10 @@ impl Core {
         let input_val = *tc.high_qc_rounds().iter().max().unwrap();
         debug!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
+        // Optimize 1
+        if self.aba_round == 1 && input_val % 2 == 0 {
+            self.bin_values.insert(input_val);
+        }
         // Broadcast the input.
         let phase = if self.aba_round == 1 {PREPARE_PHASE} else {VAL_PHASE};
         let aba_val = ABAVal::new(
@@ -774,6 +778,10 @@ impl Core {
         ).await;
         // only broadcast once
         if !self.val_value_broadcasted {
+            // Optimize 2
+            if proof.round == 1 && proof.val % 2 == 0 {
+                self.bin_values.insert(proof.val);
+            }
             self.val_value_broadcasted = true;
             let message = ConsensusMessage::ABAVal(aba_val.clone());
             Synchronizer::transmit(
