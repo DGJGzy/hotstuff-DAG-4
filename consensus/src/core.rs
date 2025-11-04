@@ -1061,7 +1061,7 @@ impl Core {
         if self.phase >= PREPARE_PHASE {
             if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
                 self.process_prepare_phase(proof.clone()).await?;
-            } else if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
+            } else if let Some(proof) = self.aba_prepare_proof_cache2.get(&self.epoch) {
                 self.process_prepare_phase(proof.clone()).await?;
             } else if !self.prepare_proof_processed 
                 && self.aba_prepare_set.len() >= self.committee.quorum_threshold() as usize 
@@ -1131,21 +1131,6 @@ impl Core {
             }
         }
 
-        // We can process HELP_PHASE if we are changing view.
-        if self.is_view_change {
-            if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
-                debug!("fast pace!");
-                self.process_aba_proof(proof.clone()).await?;
-            } else if let Some(proof) = self.aba_prepare_proof_cache2.get(&self.epoch) {
-                debug!("fast pace!");
-                self.process_aba_proof(proof.clone()).await?;
-            } else if let Some(proof) = self.aba_help_proof0_cache.get(&self.epoch) {
-                self.process_aba_proof(proof.clone()).await?;
-            } else if let Some(proof) = self.aba_help_proof1_cache.get(&self.epoch) {
-                self.process_aba_proof(proof.clone()).await?;
-            }
-        }
-
         Ok(())
     }
 
@@ -1191,6 +1176,19 @@ impl Core {
         //     debug!("Epoch {}, enter HELP_PHASE", self.epoch);
         //     self.phase = HELP_PHASE;
         // }
+
+        // We can process HELP_PHASE if we are changing view.
+        if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
+            debug!("fast pace!");
+            self.process_aba_proof(proof.clone()).await?;
+        } else if let Some(proof) = self.aba_prepare_proof_cache2.get(&self.epoch) {
+            debug!("fast pace!");
+            self.process_aba_proof(proof.clone()).await?;
+        } else if let Some(proof) = self.aba_help_proof0_cache.get(&self.epoch) {
+            self.process_aba_proof(proof.clone()).await?;
+        } else if let Some(proof) = self.aba_help_proof1_cache.get(&self.epoch) {
+            self.process_aba_proof(proof.clone()).await?;
+        }
 
         if self.aba_output_val.is_some() {
             debug!("Epoch {}, enter OUTPUT_PHASE", self.epoch);
