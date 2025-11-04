@@ -109,7 +109,8 @@ pub struct Core {
     tc_cache: HashMap<SeqNumber, TC>, // epoch
     aba_help_proof0_cache: HashMap<SeqNumber, ABAProof>,
     aba_help_proof1_cache: HashMap<SeqNumber, ABAProof>,
-    aba_prepare_proof_cache: HashMap<SeqNumber, ABAProof>,
+    aba_prepare_proof_cache1: HashMap<SeqNumber, ABAProof>,
+    aba_prepare_proof_cache2: HashMap<SeqNumber, ABAProof>,
     aggregator: Aggregator,
     bin_values: HashSet<u64>,
     aba_round: SeqNumber,
@@ -179,7 +180,8 @@ impl Core {
             tc_cache: HashMap::new(), // epoch
             aba_help_proof0_cache: HashMap::new(),
             aba_help_proof1_cache: HashMap::new(),
-            aba_prepare_proof_cache: HashMap::new(),
+            aba_prepare_proof_cache1: HashMap::new(),
+            aba_prepare_proof_cache2: HashMap::new(),
             aggregator: aggregator,
             bin_values: HashSet::new(),
             aba_round: 1,
@@ -651,9 +653,9 @@ impl Core {
         debug!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
         // Optimize 1
-        if self.aba_round == 1 && input_val % 2 == 0 {
-            self.bin_values.insert(input_val);
-        }
+        // if self.aba_round == 1 && input_val % 2 == 0 {
+        //     self.bin_values.insert(input_val);
+        // }
         // Broadcast the input.
         let phase = if self.aba_round == 1 {PREPARE_PHASE} else {VAL_PHASE};
         let aba_val = ABAVal::new(
@@ -757,8 +759,10 @@ impl Core {
         self.aba_prepare_set.push(aba_val.val);
         if let Some(proof) = self.aggregator.add_aba_val(aba_val.clone())? {
             debug!("Assembled {:?}", proof);
-            if proof.val % 2 == 1 {
-                self.aba_prepare_proof_cache.insert(proof.epoch, proof);
+            if proof.val % 2 == 0 {
+                self.aba_prepare_proof_cache1.insert(proof.epoch, proof);
+            } else {
+                self.aba_prepare_proof_cache2.insert(proof.epoch, proof);
             }
         }
         Ok(())
@@ -779,9 +783,9 @@ impl Core {
         // only broadcast once
         if !self.val_value_broadcasted {
             // Optimize 2
-            if proof.round == 1 && proof.val % 2 == 0 {
-                self.bin_values.insert(proof.val);
-            }
+            // if proof.round == 1 && proof.val % 2 == 0 {
+            //     self.bin_values.insert(proof.val);
+            // }
             self.val_value_broadcasted = true;
             let message = ConsensusMessage::ABAVal(aba_val.clone());
             Synchronizer::transmit(
@@ -1014,7 +1018,11 @@ impl Core {
         proof.verify(&self.committee)?; 
         
         if proof.phase == PREPARE_PHASE {
-            self.aba_prepare_proof_cache.insert(proof.epoch, proof);
+            if proof.val % 2 == 0 {
+                self.aba_prepare_proof_cache1.insert(proof.epoch, proof);
+            } else {
+                self.aba_prepare_proof_cache2.insert(proof.epoch, proof);
+            }
             return Ok(());
         }
 
@@ -1051,17 +1059,22 @@ impl Core {
         }
 
         if self.phase >= PREPARE_PHASE {
-            if let Some(proof) = self.aba_prepare_proof_cache.get(&self.epoch) {
+            if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
+                self.process_prepare_phase(proof.clone()).await?;
+            } else if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
                 self.process_prepare_phase(proof.clone()).await?;
             } else if !self.prepare_proof_processed 
                 && self.aba_prepare_set.len() >= self.committee.quorum_threshold() as usize 
             {
                 self.prepare_proof_processed = true;
-                let first_odd: Option<&u64> = self.aba_prepare_set.iter().find(|&&seq| seq % 2 == 1);
-                if let Some(val) = first_odd {
-                    self.aba_input_val.insert(1, *val);
-                } else {
-                    self.aba_input_val.insert(1, self.aba_prepare_set[0]);
+                let mut counts = HashMap::new();
+                for val in &self.aba_prepare_set {
+                    let count = counts.entry(val).or_insert(0);
+                    *count += 1;
+                    if *count >= self.committee.quorum_threshold() as usize {
+                        self.aba_input_val.insert(1, *val);
+                        break; 
+                    }
                 }
                 let input_val = *self.aba_input_val.get(&1).unwrap();
                 let aba_val = ABAVal::new(
@@ -1110,6 +1123,9 @@ impl Core {
             if self.aba_round == 1 && !self.aba_coin_cache.contains_key(&(self.epoch, self.aba_round)) {
                 self.aba_coin_cache.insert((self.epoch, self.aba_round), 0);
             } 
+            if self.aba_round == 2 && !self.aba_coin_cache.contains_key(&(self.epoch, self.aba_round)) {
+                self.aba_coin_cache.insert((self.epoch, self.aba_round), 1);
+            } 
             if let Some(coin) = self.aba_coin_cache.get(&(self.epoch, self.aba_round)) {
                 self.process_coin_share(self.epoch, self.aba_round, *coin).await?;
             }
@@ -1117,7 +1133,10 @@ impl Core {
 
         // We can process HELP_PHASE if we are changing view.
         if self.is_view_change {
-            if let Some(proof) = self.aba_prepare_proof_cache.get(&self.epoch) {
+            if let Some(proof) = self.aba_prepare_proof_cache1.get(&self.epoch) {
+                debug!("fast pace!");
+                self.process_aba_proof(proof.clone()).await?;
+            } else if let Some(proof) = self.aba_prepare_proof_cache2.get(&self.epoch) {
                 debug!("fast pace!");
                 self.process_aba_proof(proof.clone()).await?;
             } else if let Some(proof) = self.aba_help_proof0_cache.get(&self.epoch) {
@@ -1254,7 +1273,8 @@ impl Core {
             self.tc_cache.retain(|k, _| k >= &current_epoch);
             self.aba_help_proof0_cache.retain(|k, _| k >= &current_epoch);
             self.aba_help_proof1_cache.retain(|k, _| k >= &current_epoch);
-            self.aba_prepare_proof_cache.retain(|k, _| k >= &current_epoch);
+            self.aba_prepare_proof_cache1.retain(|k, _| k >= &current_epoch);
+            self.aba_prepare_proof_cache2.retain(|k, _| k >= &current_epoch);
             self.aba_val_phase_cache1.retain(|(k, _), _| k >= &current_epoch);
             self.aba_val_phase_cache2.retain(|(k, _), _| k >= &current_epoch);
             self.aba_aux_phase_cache.retain(|(k, _), _| k >= &current_epoch);

@@ -13,7 +13,7 @@ def local(ctx):
     ''' Run benchmarks on localhost '''
     bench_params = {
         'nodes': 7,
-        'rate': 100000,
+        'rate': 10000,
         'tx_size': 256,
         'faults': 0,
         'duration': 60,
