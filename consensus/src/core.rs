@@ -680,7 +680,7 @@ impl Core {
         // If we have tc, enter in view-change.
         if self.tc_cache.contains_key(&self.epoch) {
             if !self.is_view_change {
-                debug!("aba status start, epoch {}", self.epoch);
+                info!("aba status start, epoch {}", self.epoch);
                 self.is_view_change = true;
             }  
         }
@@ -692,7 +692,7 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
-                debug!("aba status start, epoch {}", self.epoch);
+                info!("aba status start, epoch {}", self.epoch);
                 for (_, info_chain) in self.pubkey_to_chain.clone() {
                     debug!("chain name {}, height {}", info_chain.name, info_chain.height);
                 }
@@ -1213,7 +1213,7 @@ impl Core {
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
-            debug!("aba status end, epoch {}", self.epoch);
+            info!("aba status end, epoch {}", self.epoch);
             // handle adaptive lambda
             let committed_block_number = self.chain_committed
                 .entry(self.epoch)
