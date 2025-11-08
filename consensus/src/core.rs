@@ -650,10 +650,7 @@ impl Core {
         let input_val = *tc.high_qc_rounds().iter().max().unwrap();
         debug!("input_val: {}", input_val);
         self.aba_input_val.insert(1, input_val);
-        // Optimize 1
-        if self.aba_round == 1 && input_val % 2 == 0 {
-            self.bin_values.insert(input_val);
-        }
+
         // Broadcast the input.
         let phase = if self.aba_round == 1 {PREPARE_PHASE} else {VAL_PHASE};
         let aba_val = ABAVal::new(
@@ -682,7 +679,7 @@ impl Core {
         // If we have tc, enter in view-change.
         if self.tc_cache.contains_key(&self.epoch) {
             if !self.is_view_change {
-                debug!("aba status start, epoch {}", self.epoch);
+                info!("aba status start, epoch {}", self.epoch);
                 self.is_view_change = true;
             }  
         }
@@ -694,7 +691,7 @@ impl Core {
         // If there is any chain's round greater than leader's, try to view change.
         for (_, other_chain) in self.pubkey_to_chain.clone() {
             if other_chain.name != chain.name && other_chain.last_pending_height + self.parameters.lambda < other_chain.height {
-                debug!("aba status start, epoch {}", self.epoch);
+                info!("aba status start, epoch {}", self.epoch);
                 for (_, info_chain) in self.pubkey_to_chain.clone() {
                     debug!("chain name {}, height {}", info_chain.name, info_chain.height);
                 }
@@ -778,10 +775,6 @@ impl Core {
         ).await;
         // only broadcast once
         if !self.val_value_broadcasted {
-            // Optimize 2
-            if proof.round == 1 && proof.val % 2 == 0 {
-                self.bin_values.insert(proof.val);
-            }
             self.val_value_broadcasted = true;
             let message = ConsensusMessage::ABAVal(aba_val.clone());
             Synchronizer::transmit(
@@ -1196,7 +1189,7 @@ impl Core {
             let to_commit_block = block.unwrap();
             self.update_last_pending_height(&to_commit_block, chain);
             self.commit(to_commit_block, chain).await?;
-            debug!("aba status end, epoch {}", self.epoch);
+            info!("aba status end, epoch {}", self.epoch);
             // handle adaptive lambda
             let committed_block_number = self.chain_committed
                 .entry(self.epoch)

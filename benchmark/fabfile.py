@@ -50,7 +50,7 @@ def local(ctx):
 
 
 @task
-def create(ctx, nodes=1): # 创建机器实例  nodes表示在一台机器上跑多少个节点
+def create(ctx, nodes=13): # 创建机器实例  nodes表示在一台机器上跑多少个节点
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -133,13 +133,13 @@ def remote(ctx):
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 256_000, # payload size
-            'min_block_delay': 25 # minimum delay between payloads
+            'max_payload_size': 16_000, # payload size
+            'min_block_delay': 100 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
     try:
-        Bench(ctx).run(bench_params, node_params, debug=True)
+        Bench(ctx).run(bench_params, node_params, debug=False)
     except BenchError as e:
         Print.error(e)
 
