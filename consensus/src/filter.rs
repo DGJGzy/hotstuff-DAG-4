@@ -58,6 +58,19 @@ impl Filter {
 
     async fn delay(input: FilterInput, parameters: Parameters, leader_elector: &LeaderElector, name: PublicKey) -> FilterInput {
         let (message, _) = &input;
+
+        let author: &PublicKey = match message {
+            ConsensusMessage::Propose(block) => &block.author,
+            ConsensusMessage::Vote(vote) => &vote.author,
+            ConsensusMessage::LoopBack(block) => &block.author,
+            ConsensusMessage::SyncRequest(_, public_key) => &public_key,
+            ConsensusMessage::SyncReply(block) => &block.author,
+            ConsensusMessage::Timeout(timeout) => &timeout.author,
+            ConsensusMessage::ABAVal(aba_val) => &aba_val.author,
+            ConsensusMessage::ABACoinShare(coin_share) => &coin_share.author,
+            _ => &PublicKey::default(),
+        };
+
         if let ConsensusMessage::Propose(block) = message {
             // NOTE: Increase the delay here (you can use any value from the 'parameters').
             // Only add network delay for non-fallback block proposals
@@ -76,13 +89,17 @@ impl Filter {
                 let delay_ms = 500 + rand::thread_rng().gen::<u64>() % 500;
                 sleep(Duration::from_millis(delay_ms)).await;
             }
+        }
 
-            if parameters.unstable_ddos && parameters.unstable_delay == 1024 {
-                if let Some(start_time) = START_TIME.get() {
-                    let elapsed = start_time.elapsed().as_secs();
-                    let cycle_position = elapsed % 90;
-                    if cycle_position >= 60 {
-                        let from = leader_elector.get_idx(&block.author);
+        if parameters.unstable_ddos && parameters.unstable_delay == 1024 {
+            if let Some(start_time) = START_TIME.get() {
+                let elapsed = start_time.elapsed().as_secs();
+                let cycle_position = elapsed % 90;
+                if cycle_position >= 60 {
+                    if author == &PublicKey::default() {
+                        sleep(Duration::from_millis(parameters.network_delay)).await;
+                    } else {
+                        let from = leader_elector.get_idx(author);
                         let to = leader_elector.get_idx(&name);
                         if ((0..=3).contains(&from) && (4..=6).contains(&to)) 
                         || ((4..=6).contains(&from) && (0..=3).contains(&to)) {
