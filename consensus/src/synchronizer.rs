@@ -188,8 +188,8 @@ impl Synchronizer {
                     .collect();
 
                 if from_id >= 0 && from_id <= 3 {
-                    // delete addresses of nodes 0, 1, 2, 3
-                    for id in 0..=3 {
+                    // delete addresses of nodes 4, 5, 6
+                    for id in 4..=6 {
                         if let Some(addr) = all_addresses.get(&id) {
                             if let Some(pos) = addresses.iter().position(|x| x == addr) {
                                 debug!("DDoS attack: removing address of node {}", id);
@@ -201,8 +201,8 @@ impl Synchronizer {
                 }
 
                 if from_id >= 4 && from_id <= 6 {
-                    // delete addresses of nodes 4, 5, 6
-                    for id in 4..=6 {
+                    // delete addresses of nodes 0, 1, 2, 3
+                    for id in 0..=3 {
                         if let Some(addr) = all_addresses.get(&id) {
                             if let Some(pos) = addresses.iter().position(|x| x == addr) {
                                 debug!("DDoS attack: removing address of node {}", id);
