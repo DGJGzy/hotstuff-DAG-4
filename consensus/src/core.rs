@@ -38,7 +38,7 @@ pub const COIN_PHASE: u8 = 4;
 pub const HOTSTUFF: u8 = 0;
 pub const TCVBA: u8 = 1;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ConsensusMessage {
     Propose(Block),
     Vote(Vote),

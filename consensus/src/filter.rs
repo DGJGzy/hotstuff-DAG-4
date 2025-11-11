@@ -8,14 +8,10 @@ use log::debug;
 use network::NetMessage;
 use rand::Rng;
 use std::net::SocketAddr;
-use std::sync::OnceLock;
-use std::time::Instant;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
-pub type FilterInput = (ConsensusMessage, Vec<SocketAddr>);
-
-static START_TIME: OnceLock<Instant> = OnceLock::new();
+pub type FilterInput = (ConsensusMessage, Vec<SocketAddr>, bool); // check whether the message should be delayed
 
 pub struct Filter;
 
@@ -44,7 +40,7 @@ impl Filter {
     }
 
     async fn transmit(input: FilterInput, network: &Sender<NetMessage>) {
-        let (message, addresses) = input;
+        let (message, addresses, _) = input;
         let bytes = bincode::serialize(&message).expect("Failed to serialize core message");
         let net_message = NetMessage(Bytes::from(bytes), addresses);
         if let Err(e) = network.send(net_message).await {
@@ -53,7 +49,7 @@ impl Filter {
     }
 
     async fn delay(input: FilterInput, parameters: Parameters, leader_elector: &LeaderElector) -> FilterInput {
-        let (message, _) = &input;
+        let (message, _, flag) = &input;
 
         if let ConsensusMessage::Propose(block) = message {
             // NOTE: Increase the delay here (you can use any value from the 'parameters').
@@ -75,6 +71,10 @@ impl Filter {
             }
         }
 
+        if *flag == true {
+            debug!("Delay success");
+            sleep(Duration::from_millis(parameters.network_delay)).await;
+        }
         input
     }
 }

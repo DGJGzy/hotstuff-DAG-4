@@ -176,6 +176,7 @@ impl Synchronizer {
             }
         };
 
+        let mut deleted_addresses = Vec::new();
         if let Some(start_time) = START_TIME.get() {
             let elapsed = start_time.elapsed().as_secs();
             let cycle_position = elapsed % 90;
@@ -189,7 +190,7 @@ impl Synchronizer {
                         (authority.id, authority.address) 
                     })
                     .collect();
-
+                
                 if from_id >= 0 && from_id <= 3 {
                     // delete addresses of nodes 4, 5, 6
                     for id in 4..=6 {
@@ -198,6 +199,7 @@ impl Synchronizer {
                                 debug!("DDoS attack: removing address of node {}", id);
                                 // remove the address from addresses
                                 let _ = addresses.remove(pos);
+                                deleted_addresses.push(*addr);
                             }
                         }
                     }
@@ -211,6 +213,7 @@ impl Synchronizer {
                                 debug!("DDoS attack: removing address of node {}", id);
                                 // remove the address from addresses
                                 let _ = addresses.remove(pos);
+                                deleted_addresses.push(*addr);
                             }
                         }
                     }
@@ -218,7 +221,10 @@ impl Synchronizer {
             }
         }
 
-        if let Err(e) = network_filter.send((message, addresses)).await {
+        if let Err(e) = network_filter.send((message.clone(), addresses, false)).await {
+            panic!("Failed to send block through network channel: {}", e);
+        }
+        if let Err(e) = network_filter.send((message, deleted_addresses, true)).await {
             panic!("Failed to send block through network channel: {}", e);
         }
         Ok(())
