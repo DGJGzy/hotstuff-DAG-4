@@ -1,3 +1,4 @@
+use crate::SeqNumber;
 use crate::config::Committee;
 use crate::core::{ConsensusMessage, HOTSTUFF};
 use crate::error::ConsensusResult;
@@ -8,7 +9,9 @@ use crypto::{Digest, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
+use std::net::SocketAddr;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -139,6 +142,12 @@ impl Synchronizer {
         Ok((bincode::deserialize(&bytes)?, block))
     }
 
+    pub fn get_idx(key: &PublicKey, committee: &Committee) -> SeqNumber {
+        let mut keys: Vec<_> = committee.authorities.keys().cloned().collect();
+        keys.sort();
+        keys.iter().position(|k| k == key).unwrap() as SeqNumber
+    }
+    
     pub async fn transmit(
         message: ConsensusMessage,
         from: &PublicKey,
@@ -147,7 +156,9 @@ impl Synchronizer {
         committee: &Committee,
         tag: u8,
     ) -> ConsensusResult<()> {
-        let addresses = if let Some(to) = to {
+        static START_TIME: OnceLock<Instant> = OnceLock::new();
+
+        let mut addresses = if let Some(to) = to {
             debug!("Sending {:?} to {}", message, to);
             if tag == HOTSTUFF {
                 vec![committee.address(to)?]
@@ -162,6 +173,48 @@ impl Synchronizer {
                 committee.smvba_broadcast_addresses(from)
             }
         };
+
+        if let Some(start_time) = START_TIME.get() {
+            let elapsed = start_time.elapsed().as_secs();
+            let cycle_position = elapsed % 90;
+            if cycle_position >= 60 {
+                let from_id = Self::get_idx(from, committee);
+                // extract all nodes address (id to address hashmap)
+                let all_addresses: HashMap<usize, SocketAddr> = committee.authorities
+                    .iter()
+                    .map(|(_, authority)| {
+                        (authority.id, authority.address) 
+                    })
+                    .collect();
+
+                if from_id >= 0 && from_id <= 3 {
+                    // delete addresses of nodes 0, 1, 2, 3
+                    for id in 0..=3 {
+                        if let Some(addr) = all_addresses.get(&id) {
+                            if let Some(pos) = addresses.iter().position(|x| x == addr) {
+                                debug!("DDoS attack: removing address of node {}", id);
+                                // remove the address from addresses
+                                let _ = addresses.remove(pos);
+                            }
+                        }
+                    }
+                }
+
+                if from_id >= 4 && from_id <= 6 {
+                    // delete addresses of nodes 4, 5, 6
+                    for id in 4..=6 {
+                        if let Some(addr) = all_addresses.get(&id) {
+                            if let Some(pos) = addresses.iter().position(|x| x == addr) {
+                                debug!("DDoS attack: removing address of node {}", id);
+                                // remove the address from addresses
+                                let _ = addresses.remove(pos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if let Err(e) = network_filter.send((message, addresses)).await {
             panic!("Failed to send block through network channel: {}", e);
         }
