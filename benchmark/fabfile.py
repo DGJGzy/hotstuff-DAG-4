@@ -31,8 +31,8 @@ def local(ctx):
             'random_ddos_chance': 0, # 0-100, 0 for no random delay
             'exp': 2, # multiplicative factor for exponential fallback
             'lambda': 40,
-            'unstable_ddos': True,
-            'unstable_delay': 1024,
+            'unstable_ddos': False,
+            'unstable_delay': 500,
         },
         'mempool': {
             'queue_capacity': 10_000,

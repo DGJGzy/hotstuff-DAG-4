@@ -28,8 +28,6 @@ impl Filter {
         parameters: Parameters,
         leader_elector: LeaderElector,
     ) {
-        START_TIME.set(Instant::now()).unwrap_or(());
-
         tokio::spawn(async move {
             let mut pending = FuturesUnordered::new();
             let mut pending_smvba = FuturesUnordered::new();

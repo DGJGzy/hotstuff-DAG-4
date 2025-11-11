@@ -23,6 +23,8 @@ pub mod synchronizer_tests;
 
 const TIMER_ACCURACY: u64 = 5_000;
 
+static START_TIME: OnceLock<Instant> = OnceLock::new();
+
 pub struct Synchronizer {
     store: Store,
     inner_channel: Sender<(Vec<(PublicKey, Digest)>, Option<Block>)>,
@@ -156,7 +158,7 @@ impl Synchronizer {
         committee: &Committee,
         tag: u8,
     ) -> ConsensusResult<()> {
-        static START_TIME: OnceLock<Instant> = OnceLock::new();
+        START_TIME.set(Instant::now()).unwrap_or(());
 
         let mut addresses = if let Some(to) = to {
             debug!("Sending {:?} to {}", message, to);
@@ -179,6 +181,7 @@ impl Synchronizer {
             let cycle_position = elapsed % 90;
             if cycle_position >= 60 {
                 let from_id = Self::get_idx(from, committee);
+                debug!("DDoS attack active. from_id: {}", from_id);
                 // extract all nodes address (id to address hashmap)
                 let all_addresses: HashMap<usize, SocketAddr> = committee.authorities
                     .iter()
