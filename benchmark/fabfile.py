@@ -107,11 +107,11 @@ def install(ctx):
 def remote(ctx):
     ''' Run benchmarks on AWS '''
     bench_params = {
-        'nodes': [16],
-        'rate': [255000],
-        'tx_size': 16,
+        'nodes': [7],
+        'rate': [10000, 15000, 20000, 100000, 140000],
+        'tx_size': 256,
         'faults': 0, 
-        'duration': 300,
+        'duration': 100,
         'runs': 1,
     }
     node_params = {
@@ -122,19 +122,19 @@ def remote(ctx):
             'max_payload_size': 1_000, # size of payloads in block
             'min_block_delay': 100, # minimum delay between blocks
             'network_delay': 20_000, # message delay on the leaders' proposals during DDoS
-            'ddos': True, # True for DDoS attack on the leader, False otherwise
+            'ddos': False, # True for DDoS attack on the leader, False otherwise
             'random_ddos': False,
             'random_ddos_chance': 5,
             'exp': 2, # multiplicative factor for exponential fallback
             'lambda': 40,
-            'unstable_ddos': False, # True for DDoS attack on the next leader, False otherwise
-            'unstable_delay': 500, # Optimistic delay
+            'unstable_ddos': True, # True for DDoS attack on the next leader, False otherwise
+            'unstable_delay': 0, # Optimistic delay
         },
         'mempool': {
             'queue_capacity': 100_000,
             'sync_retry_delay': 100_000,
-            'max_payload_size': 16_000, # payload size
-            'min_block_delay': 100 # minimum delay between payloads
+            'max_payload_size': 256_000, # payload size
+            'min_block_delay': 25 # minimum delay between payloads
         },
         'protocol': 1, # 0 for 2-chain HotStuff, 1 for Ditto, 2 for 2-chain VABA
     }
