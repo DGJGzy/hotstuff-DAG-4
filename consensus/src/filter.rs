@@ -86,7 +86,7 @@ impl Filter {
                 debug!("Delay success {}", block.author);
                 sleep(Duration::from_millis(parameters.unstable_delay)).await;
             } else if parameters.unstable_ddos && parameters.unstable_delay == 0 {
-                let delay_ms = 600;
+                let delay_ms = 600 + rand::thread_rng().gen::<u64>() % 400;
                 sleep(Duration::from_millis(delay_ms)).await;
             }
         }
